@@ -8,8 +8,15 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, BinaryIO
 
-from bug_vet import __version__, collide, gate, ledger as ledger_mod, runner, shrinker, verify
-from bug_vet.oracles import claims as claims_oracle, roundtrip as roundtrip_oracle
+from bug_vet import __version__, collide, falsifier, gate, ledger as ledger_mod, playbooks, report, runner, shrinker, verify
+from bug_vet.oracles import (
+    claims as claims_oracle,
+    contracts as contracts_oracle,
+    parser_meta as parser_meta_oracle,
+    roundtrip as roundtrip_oracle,
+    run_all_scans,
+    siblings as siblings_oracle,
+)
 from bug_vet.paths import ensure_run, run_dir
 
 DEFAULT_PROTOCOL_VERSION = "2024-11-05"
@@ -17,13 +24,25 @@ DEFAULT_PROTOCOL_VERSION = "2024-11-05"
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "bv_scan",
-        "description": "Run contract/structural scans (claims, roundtrip, examples, or callsites) into a run directory.",
+        "description": (
+            "Run contract or structural discovery scans (claims, roundtrip, examples, "
+            "callsites, siblings, parser_meta, contracts, or all) into a run directory."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "mode": {
                     "type": "string",
-                    "enum": ["claims", "roundtrip", "examples", "callsites"],
+                    "enum": [
+                        "claims",
+                        "roundtrip",
+                        "examples",
+                        "callsites",
+                        "siblings",
+                        "parser_meta",
+                        "contracts",
+                        "all",
+                    ],
                     "description": "Scan mode to run.",
                 },
                 "run": {"type": "string", "description": "Run name."},
@@ -33,6 +52,9 @@ TOOLS: list[dict[str, Any]] = [
                 "max_per_family": {"type": "integer"},
                 "include_tests": {"type": "boolean"},
                 "include_unreachable": {"type": "boolean"},
+                "include_ts": {"type": "boolean"},
+                "register_obligations": {"type": "boolean"},
+                "apply_falsifier": {"type": "boolean"},
                 "function": {"type": "string", "description": "Function name for callsites mode."},
                 "lang": {"type": "string", "description": "Language for examples/callsites mode."},
                 "python": {"type": "string", "description": "Interpreter path for examples mode."},
@@ -158,6 +180,57 @@ TOOLS: list[dict[str, Any]] = [
             "required": ["action"],
         },
     },
+    {
+        "name": "bv_playbook",
+        "description": "List or retrieve compiled bug-family playbooks including probe recipes and falsification pitfalls.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string", "enum": ["list", "get"]},
+                "query": {"type": "string", "description": "Playbook id, bug family, or keyword."},
+            },
+            "required": ["action"],
+        },
+    },
+    {
+        "name": "bv_falsify",
+        "description": "Run adversarial falsification (upstream compensation check, vacuous test audit, or record falsification).",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "mode": {"type": "string", "enum": ["compensation", "vacuity", "record"]},
+                "path": {"type": "string", "description": "Repo root for compensation mode."},
+                "symbol": {"type": "string", "description": "Target function symbol for compensation mode."},
+                "env_var": {"type": "string", "description": "Environment variable name to trace upstream."},
+                "file_hint": {"type": "string"},
+                "max_depth": {"type": "integer"},
+                "test_file": {"type": "string", "description": "Probe or test file path for vacuity audit."},
+                "target_symbol": {"type": "string", "description": "Symbol under test for vacuity mock checks."},
+                "run": {"type": "string", "description": "Run name for record mode."},
+                "runs_dir": {"type": "string"},
+                "obligation_id": {"type": "string"},
+                "reason": {"type": "string"},
+                "category": {"type": "string"},
+                "source_location": {"type": "string"},
+            },
+            "required": ["mode"],
+        },
+    },
+    {
+        "name": "bv_report",
+        "description": "Generate findings.json, REPORT.md, SARIF 2.1.0 results.sarif, and optional PR.md from a run.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "run": {"type": "string"},
+                "runs_dir": {"type": "string"},
+                "formats": {"type": "array", "items": {"type": "string"}},
+                "include_pr": {"type": "boolean"},
+                "include_candidates": {"type": "boolean"},
+            },
+            "required": ["run"],
+        },
+    },
 ]
 
 
@@ -208,6 +281,37 @@ def _handle_scan(args: dict[str, Any]) -> dict[str, Any]:
             func,
             runs_dir=runs_dir,
             lang=str(args.get("lang", "python")),
+        )
+    if mode == "siblings":
+        return siblings_oracle.run_siblings_scan(
+            run,
+            path,
+            runs_dir=runs_dir,
+            include_ts=bool(args.get("include_ts", True)),
+            register_obligations=bool(args.get("register_obligations", False)),
+        )
+    if mode == "parser_meta":
+        return parser_meta_oracle.run_parser_meta_scan(
+            run,
+            path,
+            runs_dir=runs_dir,
+            register_obligations=bool(args.get("register_obligations", False)),
+        )
+    if mode == "contracts":
+        return contracts_oracle.run_contracts_scan(
+            run,
+            path,
+            runs_dir=runs_dir,
+            register_obligations=bool(args.get("register_obligations", False)),
+        )
+    if mode == "all":
+        return run_all_scans(
+            run,
+            path,
+            runs_dir=runs_dir,
+            include_ts=bool(args.get("include_ts", True)),
+            apply_falsifier=bool(args.get("apply_falsifier", True)),
+            claim_tier=str(args.get("tier", "A")),
         )
     raise ValueError(f"unknown scan mode: {mode!r}")
 
@@ -392,6 +496,64 @@ def _handle_gate(args: dict[str, Any]) -> dict[str, Any]:
     raise ValueError(f"unknown gate action: {action!r}")
 
 
+def _handle_playbook(args: dict[str, Any]) -> dict[str, Any]:
+    action = _require_str(args, "action")
+    if action == "list":
+        entries = playbooks.list_playbooks()
+        return {"count": len(entries), "playbooks": entries}
+    if action == "get":
+        return playbooks.get_playbook(_require_str(args, "query"))
+    raise ValueError(f"unknown playbook action: {action!r}")
+
+
+def _handle_falsify(args: dict[str, Any]) -> dict[str, Any]:
+    mode = _require_str(args, "mode")
+    if mode == "compensation":
+        return falsifier.check_upstream_compensation(
+            _require_str(args, "path"),
+            _require_str(args, "symbol"),
+            env_var=args.get("env_var"),
+            file_hint=args.get("file_hint"),
+            max_depth=int(args.get("max_depth", 3)),
+        )
+    if mode == "vacuity":
+        return falsifier.audit_test_vacuity(
+            _require_str(args, "test_file"),
+            target_symbol=args.get("target_symbol"),
+        )
+    if mode == "record":
+        run = _require_str(args, "run")
+        ob_id = _require_str(args, "obligation_id")
+        reason = _require_str(args, "reason")
+        category = str(args.get("category", "false-positive"))
+        path = run_dir(run, runs_dir=args.get("runs_dir"))
+        state, ev = ledger_mod.record_falsification(
+            path,
+            ob_id,
+            reason,
+            category,
+            source_location=args.get("source_location"),
+        )
+        return {
+            "run": run,
+            "obligation_id": ev["obligation_id"],
+            "evidence_id": ev["id"],
+            "summary": ledger_mod.summary(state, probe_dir=path / "probes"),
+        }
+    raise ValueError(f"unknown falsify mode: {mode!r}")
+
+
+def _handle_report(args: dict[str, Any]) -> dict[str, Any]:
+    formats = args.get("formats") or ["markdown", "json", "sarif"]
+    return report.generate_report(
+        _require_str(args, "run"),
+        runs_dir=args.get("runs_dir"),
+        formats=formats,
+        include_pr=bool(args.get("include_pr", False)),
+        include_candidates=bool(args.get("include_candidates", False)),
+    )
+
+
 DISPATCH: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "bv_scan": _handle_scan,
     "bv_probe": _handle_probe,
@@ -399,6 +561,9 @@ DISPATCH: dict[str, Callable[[dict[str, Any]], dict[str, Any]]] = {
     "bv_verify": _handle_verify,
     "bv_ledger": _handle_ledger,
     "bv_gate": _handle_gate,
+    "bv_playbook": _handle_playbook,
+    "bv_falsify": _handle_falsify,
+    "bv_report": _handle_report,
 }
 
 

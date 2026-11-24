@@ -1,0 +1,42 @@
+[
+  {
+    "id": "sibling-asymmetry",
+    "title": "Sibling Implementation & Env-Var Asymmetry",
+    "family": "sibling-asymmetry",
+    "file": "sibling-asymmetry.md",
+    "keywords": ["sibling", "abc", "subclass", "env", "api_base", "provider", "validator", "asymmetry", "type-contract", "sequence"],
+    "summary": "Detect minority omissions across sibling subclasses, adapters, env readers, or shared CLI validators, and falsify upstream compensations before reporting."
+  },
+  {
+    "id": "parser-metadata",
+    "title": "Parser Metadata-as-Data & Deserialization Guards",
+    "family": "parser-metadata",
+    "file": "parser-metadata.md",
+    "keywords": ["parser", "fence", "backtick", "tilde", "sse", "crlf", "cr", "delimiter", "footnote", "markdown", "diff", "deserialization", "from_dict", "json"],
+    "summary": "Catch parsers that confuse body content with framing/metadata, drop CR-only/mixed terminators, or crash when present JSON fields are non-mappings."
+  },
+  {
+    "id": "split-brain-dual-path",
+    "title": "Split-Brain Readers, Dual-Path State Leaks & Re-Registration",
+    "family": "split-brain",
+    "file": "split-brain-dual-path.md",
+    "keywords": ["split-brain", "dual-path", "state", "leak", "reset", "reregister", "re-register", "usage", "envelope", "idempotent", "session"],
+    "summary": "Expose split readers reading different paths for one fact, reset/resume paths bypassing cleanup, and idempotent re-registrations wiping live state."
+  },
+  {
+    "id": "lifecycle-missing-key",
+    "title": "Lifecycle Snapshot Shrinking & In-Place Comparator Blind Spots",
+    "family": "lifecycle-missing-key",
+    "file": "lifecycle-missing-key.md",
+    "keywords": ["lifecycle", "keyerror", "coordinator", "subscript", "snapshot", "unavailable", "memo", "comparator", "in-place", "disappear"],
+    "summary": "Find long-lived objects indexing shrinking external snapshots with bare subscripts, plus comparators blind to mid-list in-place replacements."
+  },
+  {
+    "id": "fake-green-tests",
+    "title": "Fake-Green Tests, Vacuous Probes & Phase-0 Repo Admission",
+    "family": "testing-quality",
+    "file": "fake-green-tests.md",
+    "keywords": ["vacuous", "fake-green", "caplog", "mock", "coverage", "self_check", "test", "admission", "collide", "triage"],
+    "summary": "Eliminate loose caplog.text assertions, disconnected mocks, uncovered branches, and unvetted repo targets."
+  }
+]

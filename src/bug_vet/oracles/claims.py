@@ -52,7 +52,11 @@ FAMILIES: dict[str, tuple[re.Pattern[str], str]] = {
         "prop-concurrency",
     ),
     "bounds": (
-        re.compile(r"\b(at most|no (more|larger) than|bounded by|upper[- ]bound|within the limit)\b", re.I),
+        re.compile(
+            r"\b(at most|no (more|larger) than|bounded by|upper[- ]bound|within the limit|"
+            r"maximum (number|length|size|count) of)\b",
+            re.I,
+        ),
         "prop-bounds",
     ),
     "error_contract": (
@@ -105,7 +109,7 @@ TIER: dict[str, str] = {
 }
 
 NEGATION = re.compile(r"\b(not|never|no|non|isn't|aren't|cannot|can't|without)\b[\w\s-]{0,24}$", re.I)
-SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
+SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+|\n\s*\n|(?=\n\s*:[a-zA-Z_]+\b)")
 WHITESPACE = re.compile(r"[ \t]+")
 DOCTEST = re.compile(r"^[ \t]*(>>>|\.\.\.).*$", re.M)
 FENCE_OPEN = re.compile(r"^\s*(`{3,}|~{3,})(.*)$")

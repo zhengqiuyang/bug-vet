@@ -1,0 +1,151 @@
+[
+  {
+    "id": "instructor-null-image-data",
+    "repo": "D:\\projects\\instructor",
+    "fix_ref": "6187364d",
+    "parent_ref": "6187364d^",
+    "paths": ["instructor/v2/providers"],
+    "target": {
+      "files": ["instructor/v2/providers/anthropic/multimodal.py"],
+      "symbol": "image_to_anthropic"
+    },
+    "why": "image_to_anthropic emits {\"data\": null} for non-http(s) inputs without raising, unlike sibling image_to_* encoders."
+  },
+  {
+    "id": "litellm-cohere-env-asymmetry",
+    "repo": "D:\\projects\\litellm",
+    "fix_ref": "0a20908c1f",
+    "parent_ref": "0a20908c1f^",
+    "paths": ["litellm/main.py", "litellm/rerank_api/main.py", "litellm/llms/cohere"],
+    "target": {
+      "files": ["litellm/main.py"],
+      "symbol": "embedding"
+    },
+    "why": "The cohere embedding dispatch arm reads COHERE_API_KEY and passes api_base without reading COHERE_API_BASE."
+  },
+  {
+    "id": "pragent-provider-line-counts",
+    "repo": "D:\\projects\\pra",
+    "fix_ref": "ba4a8b8",
+    "parent_ref": "ba4a8b8^",
+    "paths": ["pr_agent/git_providers"],
+    "target": {
+      "files": [
+        "pr_agent/git_providers/codecommit_provider.py",
+        "pr_agent/git_providers/gerrit_provider.py",
+        "pr_agent/git_providers/local_git_provider.py"
+      ],
+      "symbol": "get_diff_files"
+    },
+    "why": "Gerrit, CodeCommit, and LocalGit providers omit num_plus_lines/num_minus_lines on FilePatchInfo, unlike GitHub/GitLab siblings."
+  },
+  {
+    "id": "pragent-fence-strip",
+    "repo": "D:\\projects\\pra",
+    "fix_ref": "b040dd5",
+    "parent_ref": "b040dd5^",
+    "paths": ["pr_agent/tools"],
+    "target": {
+      "files": [
+        "pr_agent/tools/pr_description.py",
+        "pr_agent/tools/pr_update_changelog.py"
+      ]
+    },
+    "why": "Naive .strip('`') and triple-backtick regex stripping mangle inline trailing backticks and nested 4-backtick fences."
+  },
+  {
+    "id": "headroom-sse-separators",
+    "repo": "D:\\projects\\headroom",
+    "fix_ref": "85ca7815",
+    "parent_ref": "85ca7815^",
+    "paths": ["headroom/proxy"],
+    "target": {
+      "files": ["headroom/proxy/sse_byte_buffer_policy.py"]
+    },
+    "why": "SSE_EVENT_TERMINATORS supports LF/CRLF pairs while omitting CR-only (\\r\\r) and mixed line-ending pairs."
+  },
+  {
+    "id": "deeptutor-footnote-markers",
+    "repo": "D:\\projects\\DeepTutor",
+    "fix_ref": "bfd860c",
+    "parent_ref": "bfd860c^",
+    "paths": ["deeptutor/services/memory"],
+    "target": {
+      "files": ["deeptutor/services/memory/document.py"],
+      "symbol": "parse"
+    },
+    "why": "Memory document parser matches [^N] footnote markers without escape handling, corrupting literal [^1] text on round-trip."
+  },
+  {
+    "id": "haystack-pipeline-non-mapping",
+    "repo": "D:\\projects\\haystack",
+    "fix_ref": "baa75f2",
+    "parent_ref": "baa75f2^",
+    "paths": ["haystack/core/pipeline"],
+    "target": {
+      "files": ["haystack/core/pipeline/base.py"],
+      "symbol": "_from_dict_impl"
+    },
+    "why": "_from_dict_impl calls .get('components', {}).items(), raising AttributeError on non-mapping values instead of DeserializationError."
+  },
+  {
+    "id": "haystack-splitter-bounds",
+    "repo": "D:\\projects\\haystack",
+    "fix_ref": "564c667",
+    "parent_ref": "564c667^",
+    "paths": ["haystack/components/preprocessors"],
+    "target": {
+      "files": ["haystack/components/preprocessors/document_splitter.py"],
+      "symbol": "DocumentSplitter"
+    },
+    "why": "DocumentSplitter promises split_length as maximum units per split, but sentence overlap exceeds split_length."
+  },
+  {
+    "id": "mujoco-rollout-sequence",
+    "repo": "D:\\projects\\mujoco",
+    "fix_ref": "e04770b7",
+    "parent_ref": "e04770b7^",
+    "paths": ["python/mujoco"],
+    "target": {
+      "files": ["python/mujoco/rollout.py"],
+      "symbol": "rollout"
+    },
+    "why": "rollout() annotates data as Sequence[MjData] while checking isinstance(data, list), misclassifying tuples."
+  },
+  {
+    "id": "ha-omada-missing-key",
+    "repo": "D:\\projects\\home-assistant-core",
+    "fix_ref": "3ad265d94e0",
+    "parent_ref": "3ad265d94e0^",
+    "paths": ["homeassistant/components/tplink_omada"],
+    "target": {
+      "files": ["homeassistant/components/tplink_omada/sensor.py"],
+      "symbol": "native_value"
+    },
+    "why": "OmadaDeviceSensor/PortSensor index self.coordinator.data[key] directly without guarding disappearing snapshot keys."
+  },
+  {
+    "id": "headroom-ws-reregister",
+    "repo": "D:\\projects\\headroom",
+    "fix_ref": "6fdd8f82",
+    "parent_ref": "6fdd8f82^",
+    "paths": ["headroom/proxy"],
+    "target": {
+      "files": ["headroom/proxy/ws_session_registry.py"],
+      "symbol": "register"
+    },
+    "why": "WebSocketSessionRegistry.register() clears relay_tasks when the exact same handle object re-registers."
+  },
+  {
+    "id": "testsprite-testlist-junit",
+    "repo": "D:\\projects\\testsprite-cli",
+    "fix_ref": "7661422",
+    "parent_ref": "7661422^",
+    "paths": ["src/commands"],
+    "target": {
+      "files": ["src/commands/testlist.ts"],
+      "symbol": "validateTestlistRunOptions"
+    },
+    "why": "testlist.ts hand-rolls JUnit report checks instead of calling shared assertJUnitReportOptions used by sibling command."
+  }
+]

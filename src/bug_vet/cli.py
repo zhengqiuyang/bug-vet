@@ -7,13 +7,38 @@ import json
 import sys
 from pathlib import Path
 
-from bug_vet import __version__, collide, gate, ledger as ledger_mod, mcp_server, runner, setup_agents, shrinker, verify
-from bug_vet.oracles import claims as claims_oracle, roundtrip as roundtrip_oracle
+from bug_vet import (
+    __version__,
+    bench,
+    collide,
+    falsifier,
+    gate,
+    ledger as ledger_mod,
+    mcp_server,
+    playbooks,
+    report,
+    runner,
+    setup_agents,
+    shrinker,
+    verify,
+)
+from bug_vet.oracles import (
+    claims as claims_oracle,
+    contracts as contracts_oracle,
+    parser_meta as parser_meta_oracle,
+    roundtrip as roundtrip_oracle,
+    run_all_scans,
+    siblings as siblings_oracle,
+)
 from bug_vet.paths import ensure_run, run_dir
 
 ARTIFACTS = (
     "gate.json",
     "claims.json",
+    "siblings-results.json",
+    "parser-meta-results.json",
+    "contracts-results.json",
+    "candidates.json",
     "ledger.json",
     "probes",
     "probe-results.json",
@@ -25,6 +50,10 @@ ARTIFACTS = (
     "callsites-results.json",
     "collision-results.json",
     "issues-results.json",
+    "findings.json",
+    "REPORT.md",
+    "results.sarif",
+    "PR.md",
 )
 
 
@@ -109,6 +138,62 @@ def cmd_scan(args: argparse.Namespace) -> int:
         for row in res.get("definitions", []):
             if row.get("unwired"):
                 print(f"  UNWIRED options in {row['defined_in']}:{row['line']}: {row['unwired']}")
+        return 0
+
+    if args.mode == "siblings":
+        res = siblings_oracle.run_siblings_scan(
+            args.name,
+            args.path,
+            runs_dir=runs_dir,
+            include_ts=not args.no_ts,
+            register_obligations=args.register_obligations,
+        )
+        print(f"{res['count']} sibling candidate(s) -> {res['artifact']}")
+        for cand in res["candidates"][:10]:
+            print(f"  [{cand['confidence']}] {cand['file']}:{cand['line']} {cand['symbol'] or ''} — {cand['detail'][:90]}")
+        return 0
+
+    if args.mode == "parser_meta":
+        res = parser_meta_oracle.run_parser_meta_scan(
+            args.name,
+            args.path,
+            runs_dir=runs_dir,
+            register_obligations=args.register_obligations,
+        )
+        print(f"{res['count']} parser-metadata candidate(s) -> {res['artifact']}")
+        for cand in res["candidates"][:10]:
+            print(f"  [{cand['confidence']}] {cand['file']}:{cand['line']} {cand['symbol'] or ''} — {cand['detail'][:90]}")
+        return 0
+
+    if args.mode == "contracts":
+        res = contracts_oracle.run_contracts_scan(
+            args.name,
+            args.path,
+            runs_dir=runs_dir,
+            register_obligations=args.register_obligations,
+        )
+        print(f"{res['count']} contract candidate(s) -> {res['artifact']}")
+        for cand in res["candidates"][:10]:
+            print(f"  [{cand['confidence']}] {cand['file']}:{cand['line']} {cand['symbol'] or ''} — {cand['detail'][:90]}")
+        return 0
+
+    if args.mode == "all":
+        res = run_all_scans(
+            args.name,
+            args.path,
+            runs_dir=runs_dir,
+            include_ts=not args.no_ts,
+            apply_falsifier=not args.no_falsifier,
+            claim_tier=args.tier,
+        )
+        print(
+            f"{res['count']} candidate(s) (falsified {res['falsified_count']}) -> {res['artifact']}"
+        )
+        for cand in res["candidates"][:10]:
+            print(
+                f"  [{cand['oracle']}/{cand['confidence']}] {cand['file']}:{cand['line'] or '-'} "
+                f"{cand['symbol'] or ''} — {cand['detail'][:80]}"
+            )
         return 0
 
     print(f"unknown scan mode: {args.mode}", file=sys.stderr)
@@ -270,6 +355,32 @@ def cmd_ledger(args: argparse.Namespace) -> int:
 
 
 def cmd_falsify(args: argparse.Namespace) -> int:
+    if args.check_compensation:
+        if not args.symbol:
+            print("error: --check-compensation requires --symbol", file=sys.stderr)
+            return 2
+        res = falsifier.check_upstream_compensation(
+            args.check_compensation,
+            args.symbol,
+            env_var=args.env_var,
+            file_hint=args.location,
+            max_depth=args.max_depth,
+        )
+        print(f"compensation verdict: {res['verdict']} (hops={res['hops_checked']})")
+        for site in res["compensation_sites"]:
+            print(f"  {site['direction']}: {site['file']}:{site['line']} {site['symbol']} ({site['env_var']})")
+        return 0
+
+    if args.check_vacuity:
+        res = falsifier.audit_test_vacuity(args.check_vacuity, target_symbol=args.target_symbol)
+        print(f"vacuous={res['vacuous']} ({res['functions_checked']} function(s) checked)")
+        for item in res["findings"]:
+            print(f"  {item['kind']} {item['function']}:{item['line']} — {item['detail']}")
+        return 1 if res["vacuous"] else 0
+
+    if not args.name or not args.obligation or not args.reason:
+        print("error: recording falsification requires <name>, --obligation, and --reason", file=sys.stderr)
+        return 2
     path = run_dir(args.name, runs_dir=_runs_dir_of(args))
     state, ev = ledger_mod.record_falsification(
         path,
@@ -280,6 +391,78 @@ def cmd_falsify(args: argparse.Namespace) -> int:
     )
     print(f"falsified {ev['obligation_id']} ({args.category}) -> {ev['id']}")
     print(ledger_mod.summary(state, probe_dir=path / "probes"))
+    return 0
+
+
+def cmd_playbook(args: argparse.Namespace) -> int:
+    query = args.get_query or args.query
+    if args.list or not query:
+        entries = playbooks.list_playbooks()
+        if args.json:
+            print(json.dumps(entries, indent=2, ensure_ascii=False))
+            return 0
+        for entry in entries:
+            print(f"{entry['id']:24s} [{entry['family']:20s}] {entry['title']}")
+        return 0
+
+    pb = playbooks.get_playbook(query)
+    if args.json:
+        print(json.dumps(pb, indent=2, ensure_ascii=False))
+        return 0
+    print(pb["content"])
+    return 0
+
+
+def cmd_report(args: argparse.Namespace) -> int:
+    formats = [f.strip() for f in args.formats.split(",") if f.strip()]
+    res = report.generate_report(
+        args.name,
+        runs_dir=_runs_dir_of(args),
+        formats=formats,
+        include_pr=args.pr,
+        include_candidates=args.include_candidates,
+    )
+    print(
+        f"report ({res['state']}): {res['finding_count']} finding(s), "
+        f"{res['falsified_count']} falsified, {res['sarif_results']} SARIF result(s)"
+    )
+    for fmt, out_path in res["artifacts"].items():
+        print(f"  {fmt:10s} -> {out_path}")
+    return 0
+
+
+def cmd_bench(args: argparse.Namespace) -> int:
+    cases_file = args.cases
+    if not cases_file:
+        local = Path.cwd() / "bench" / "cases.json"
+        bundled = Path(__file__).resolve().parents[2] / "bench" / "cases.json"
+        cases_file = str(local if local.exists() else bundled)
+    res = bench.run_benchmark(
+        cases_file,
+        case_id=args.case,
+        json_out=args.json_out,
+        markdown_out=args.markdown_out,
+    )
+    s = res["summary"]
+    print(
+        f"ContractBench: recall@5={s['recall_at_5_count']}/{s['total_cases']} ({s['recall_at_5_pct']}%), "
+        f"top1={s['top_1_count']}/{s['total_cases']}, "
+        f"post-fix cleared={s['post_fix_cleared_count']}/{s['structural_hit_count']}, "
+        f"env falsified={s['total_falsified_filtered']}"
+    )
+    for row in res["cases"]:
+        pre = row["pre_fix"]
+        post = row["post_fix"]
+        tag = "HIT " if pre["recall_at_5"] else "MISS"
+        rank = f"rank={pre['rank_of_first_hit']}" if pre["rank_of_first_hit"] else "rank=-"
+        print(
+            f"  {tag} {row['id']:32s} {rank:8s} oracles={pre['firing_oracles']} "
+            f"cands={pre['total_candidates']} post_cleared={post['cleared']}"
+        )
+    if "json_out" in res:
+        print(f"json -> {res['json_out']}")
+    if "markdown_out" in res:
+        print(f"md   -> {res['markdown_out']}")
     return 0
 
 
@@ -412,18 +595,21 @@ def build_parser() -> argparse.ArgumentParser:
     p_init.add_argument("name")
     p_init.set_defaults(func=cmd_init)
 
-    p_scan = sub.add_parser("scan", parents=[runs_parent], help="run claims/roundtrip/examples/callsites scans")
+    p_scan = sub.add_parser("scan", parents=[runs_parent], help="run structural and contract scans")
     p_scan.add_argument("path")
     p_scan.add_argument("--name", required=True)
     p_scan.add_argument(
         "--mode",
-        choices=["claims", "roundtrip", "examples", "callsites"],
+        choices=["claims", "roundtrip", "examples", "callsites", "siblings", "parser_meta", "contracts", "all"],
         default="claims",
     )
     p_scan.add_argument("--tier", choices=["A", "B", "all"], default="A")
     p_scan.add_argument("--max-per-family", type=int, default=40)
     p_scan.add_argument("--include-tests", action="store_true")
     p_scan.add_argument("--include-unreachable", action="store_true")
+    p_scan.add_argument("--register-obligations", action="store_true")
+    p_scan.add_argument("--no-ts", action="store_true")
+    p_scan.add_argument("--no-falsifier", action="store_true")
     p_scan.add_argument("--import-root", help="package import root for roundtrip")
     p_scan.add_argument("--function", help="target function for callsites")
     p_scan.add_argument("--lang", default="python")
@@ -510,13 +696,44 @@ def build_parser() -> argparse.ArgumentParser:
     p_ledger.add_argument("--limit", type=int, default=25)
     p_ledger.set_defaults(func=cmd_ledger)
 
-    p_falsify = sub.add_parser("falsify", parents=[runs_parent], help="mark an obligation falsified with reason")
-    p_falsify.add_argument("name")
-    p_falsify.add_argument("--obligation", required=True)
-    p_falsify.add_argument("--reason", required=True)
+    p_falsify = sub.add_parser(
+        "falsify",
+        parents=[runs_parent],
+        help="run upstream compensation/vacuity checks or record a falsified obligation",
+    )
+    p_falsify.add_argument("name", nargs="?")
+    p_falsify.add_argument("--obligation")
+    p_falsify.add_argument("--reason")
     p_falsify.add_argument("--category", default="false-positive")
     p_falsify.add_argument("--location")
+    p_falsify.add_argument("--check-compensation", help="repo root to trace upstream compensation")
+    p_falsify.add_argument("--symbol")
+    p_falsify.add_argument("--env-var")
+    p_falsify.add_argument("--max-depth", type=int, default=3)
+    p_falsify.add_argument("--check-vacuity", help="test or probe Python file to audit")
+    p_falsify.add_argument("--target-symbol")
     p_falsify.set_defaults(func=cmd_falsify)
+
+    p_pb = sub.add_parser("playbook", help="list or inspect compiled bug-family playbooks")
+    p_pb.add_argument("query", nargs="?")
+    p_pb.add_argument("--list", action="store_true")
+    p_pb.add_argument("--get", dest="get_query")
+    p_pb.add_argument("--json", action="store_true")
+    p_pb.set_defaults(func=cmd_playbook)
+
+    p_rep = sub.add_parser("report", parents=[runs_parent], help="render REPORT.md, findings.json, SARIF, and PR.md")
+    p_rep.add_argument("name")
+    p_rep.add_argument("--formats", default="markdown,json,sarif")
+    p_rep.add_argument("--pr", action="store_true")
+    p_rep.add_argument("--include-candidates", action="store_true")
+    p_rep.set_defaults(func=cmd_report)
+
+    p_bench = sub.add_parser("bench", help="run ContractBench pre-fix recall & post-fix negative control")
+    p_bench.add_argument("--cases")
+    p_bench.add_argument("--case")
+    p_bench.add_argument("--json-out")
+    p_bench.add_argument("--markdown-out")
+    p_bench.set_defaults(func=cmd_bench)
 
     p_gate = sub.add_parser("gate", parents=[runs_parent], help="run fail-closed readiness gate")
     p_gate.add_argument("name")

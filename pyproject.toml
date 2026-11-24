@@ -4,8 +4,8 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bug-vet"
-version = "0.1.0"
-description = "Vet silent contract bugs with executable red/green proof, deterministic probes, and a zero-dep MCP dual surface."
+version = "0.3.0"
+description = "Vet silent contract bugs with executable red/green proof, structural oracles, adversarial falsification, and a zero-dep MCP dual surface."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
@@ -23,7 +23,7 @@ bugvet = "bug_vet.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-bug_vet = ["templates/*.tmpl"]
+bug_vet = ["templates/*.tmpl", "playbooks/*.md", "playbooks/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

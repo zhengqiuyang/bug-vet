@@ -1,0 +1,548 @@
+{
+  "top_k": 5,
+  "summary": {
+    "total_cases": 12,
+    "recall_at_5_count": 10,
+    "recall_at_5_pct": 83.3,
+    "top_1_count": 7,
+    "structural_hit_count": 11,
+    "post_fix_cleared_count": 11,
+    "total_falsified_filtered": 0
+  },
+  "cases": [
+    {
+      "id": "instructor-null-image-data",
+      "repo": "instructor",
+      "fix_ref": "6187364d",
+      "parent_ref": "6187364d^",
+      "why": "image_to_anthropic emits {\"data\": null} for non-http(s) inputs without raising, unlike sibling image_to_* encoders.",
+      "pre_fix": {
+        "total_candidates": 2,
+        "falsified_filtered": 0,
+        "target_hits": 1,
+        "has_structural_hit": true,
+        "rank_of_first_hit": 1,
+        "recall_at_5": true,
+        "firing_oracles": [
+          "siblings"
+        ],
+        "top_hit": {
+          "oracle": "siblings",
+          "family": "sibling-asymmetry",
+          "file": "instructor/v2/providers/anthropic/multimodal.py",
+          "line": 12,
+          "symbol": "image_to_anthropic",
+          "detail": "image_to_anthropic conditionally handles URL prefix (case-sensitive startswith) and returns payload attribute(s) (data, media_type) without raising on missing data, unlike siblings (genai, openai)",
+          "confidence": "high",
+          "evidence": {
+            "rule": "sibling-guard-asymmetry",
+            "entity": "image",
+            "provider": "anthropic",
+            "raising_siblings": [
+              "genai",
+              "openai"
+            ],
+            "returned_attrs": [
+              "data",
+              "media_type"
+            ]
+          },
+          "playbook_id": "sibling-asymmetry"
+        }
+      },
+      "post_fix": {
+        "total_candidates": 1,
+        "falsified_filtered": 0,
+        "cleared_signatures": 1,
+        "remaining_signatures": 0,
+        "same_rule_hits": 0,
+        "cleared": true,
+        "fully_cleared": true
+      }
+    },
+    {
+      "id": "litellm-cohere-env-asymmetry",
+      "repo": "litellm",
+      "fix_ref": "0a20908c1f",
+      "parent_ref": "0a20908c1f^",
+      "why": "The cohere embedding dispatch arm reads COHERE_API_KEY and passes api_base without reading COHERE_API_BASE.",
+      "pre_fix": {
+        "total_candidates": 6,
+        "falsified_filtered": 0,
+        "target_hits": 5,
+        "has_structural_hit": true,
+        "rank_of_first_hit": 1,
+        "recall_at_5": true,
+        "firing_oracles": [
+          "claims",
+          "siblings"
+        ],
+        "top_hit": {
+          "oracle": "siblings",
+          "family": "sibling-asymmetry",
+          "file": "litellm/main.py",
+          "line": 7250,
+          "symbol": "embedding",
+          "detail": "branch in embedding reads COHERE_API_KEY and passes api_base without reading COHERE_API_BASE, unlike sibling branches (17 read *_API_BASE and COHERE_API_BASE exists elsewhere)",
+          "confidence": "medium",
+          "evidence": {
+            "rule": "env-asymmetry",
+            "env_var": "COHERE_API_BASE",
+            "peer_env": "COHERE_API_KEY",
+            "provider_prefix": "cohere",
+            "sibling_base_arms": 17
+          },
+          "playbook_id": "sibling-asymmetry"
+        }
+      },
+      "post_fix": {
+        "total_candidates": 5,
+        "falsified_filtered": 0,
+        "cleared_signatures": 1,
+        "remaining_signatures": 2,
+        "same_rule_hits": 2,
+        "cleared": true,
+        "fully_cleared": false
+      }
+    },
+    {
+      "id": "pragent-provider-line-counts",
+      "repo": "pra",
+      "fix_ref": "ba4a8b8",
+      "parent_ref": "ba4a8b8^",
+      "why": "Gerrit, CodeCommit, and LocalGit providers omit num_plus_lines/num_minus_lines on FilePatchInfo, unlike GitHub/GitLab siblings.",
+      "pre_fix": {
+        "total_candidates": 22,
+        "falsified_filtered": 0,
+        "target_hits": 3,
+        "has_structural_hit": true,
+        "rank_of_first_hit": 8,
+        "recall_at_5": false,
+        "firing_oracles": [
+          "siblings"
+        ],
+        "top_hit": {
+          "oracle": "siblings",
+          "family": "sibling-asymmetry",
+          "file": "pr_agent/git_providers/codecommit_provider.py",
+          "line": 226,
+          "symbol": "get_diff_files",
+          "detail": "CodeCommitProvider.get_diff_files calls FilePatchInfo(...) omitting majority kwarg(s) num_minus_lines, num_plus_lines passed by >=50% of GitProvider siblings (8 checked)",
+          "confidence": "high",
+          "evidence": {
+            "rule": "abc-kwarg-asymmetry",
+            "base": "GitProvider",
+            "class": "CodeCommitProvider",
+            "callee": "FilePatchInfo",
+            "missing_kwargs": [
+              "num_minus_lines",
+              "num_plus_lines"
+            ],
+            "majority_kwargs": [
+              "edit_type",
+              "num_minus_lines",
+              "num_plus_lines",
+              "old_filename"
+            ],
+            "sibling_count": 8
+          },
+          "playbook_id": "sibling-asymmetry"
+        }
+      },
+      "post_fix": {
+        "total_candidates": 19,
+        "falsified_filtered": 0,
+        "cleared_signatures": 3,
+        "remaining_signatures": 0,
+        "same_rule_hits": 0,
+        "cleared": true,
+        "fully_cleared": true
+      }
+    },
+    {
+      "id": "pragent-fence-strip",
+      "repo": "pra",
+      "fix_ref": "b040dd5",
+      "parent_ref": "b040dd5^",
+      "why": "Naive .strip('`') and triple-backtick regex stripping mangle inline trailing backticks and nested 4-backtick fences.",
+      "pre_fix": {
+        "total_candidates": 11,
+        "falsified_filtered": 0,
+        "target_hits": 5,
+        "has_structural_hit": true,
+        "rank_of_first_hit": 2,
+        "recall_at_5": true,
+        "firing_oracles": [
+          "claims",
+          "parser_meta"
+        ],
+        "top_hit": {
+          "oracle": "parser_meta",
+          "family": "parser-metadata",
+          "file": "pr_agent/tools/pr_description.py",
+          "line": 611,
+          "symbol": "_prepare_prediction",
+          "detail": "calls .strip('`'), which strips individual characters and mangles trailing inline code spans instead of removing a balanced fence",
+          "confidence": "high",
+          "evidence": {
+            "rule": "naive-fence-strip",
+            "method": "strip",
+            "chars": "`"
+          },
+          "playbook_id": "parser-metadata"
+        }
+      },
+      "post_fix": {
+        "total_candidates": 8,
+        "falsified_filtered": 0,
+        "cleared_signatures": 2,
+        "remaining_signatures": 0,
+        "same_rule_hits": 0,
+        "cleared": true,
+        "fully_cleared": true
+      }
+    },
+    {
+      "id": "headroom-sse-separators",
+      "repo": "headroom",
+      "fix_ref": "85ca7815",
+      "parent_ref": "85ca7815^",
+      "why": "SSE_EVENT_TERMINATORS supports LF/CRLF pairs while omitting CR-only (\\r\\r) and mixed line-ending pairs.",
+      "pre_fix": {
+        "total_candidates": 85,
+        "falsified_filtered": 0,
+        "target_hits": 1,
+        "has_structural_hit": true,
+        "rank_of_first_hit": 1,
+        "recall_at_5": true,
+        "firing_oracles": [
+          "parser_meta"
+        ],
+        "top_hit": {
+          "oracle": "parser_meta",
+          "family": "parser-metadata",
+          "file": "headroom/proxy/sse_byte_buffer_policy.py",
+          "line": 8,
+          "symbol": null,
+          "detail": "event/line-ending terminator set supports LF and CRLF pairs but omits CR-only (\\r\\r) and mixed (\\r\\n\\n / \\n\\r\\n)",
+          "confidence": "high",
+          "evidence": {
+            "rule": "incomplete-event-terminators",
+            "missing": [
+              "CR-only (\\r\\r)",
+              "mixed (\\r\\n\\n / \\n\\r\\n)"
+            ],
+            "count": 2
+          },
+          "playbook_id": "parser-metadata"
+        }
+      },
+      "post_fix": {
+        "total_candidates": 84,
+        "falsified_filtered": 0,
+        "cleared_signatures": 1,
+        "remaining_signatures": 0,
+        "same_rule_hits": 0,
+        "cleared": true,
+        "fully_cleared": true
+      }
+    },
+    {
+      "id": "deeptutor-footnote-markers",
+      "repo": "DeepTutor",
+      "fix_ref": "bfd860c",
+      "parent_ref": "bfd860c^",
+      "why": "Memory document parser matches [^N] footnote markers without escape handling, corrupting literal [^1] text on round-trip.",
+      "pre_fix": {
+        "total_candidates": 22,
+        "falsified_filtered": 0,
+        "target_hits": 7,
+        "has_structural_hit": true,
+        "rank_of_first_hit": 3,
+        "recall_at_5": true,
+        "firing_oracles": [
+          "claims",
+          "parser_meta"
+        ],
+        "top_hit": {
+          "oracle": "parser_meta",
+          "family": "parser-metadata",
+          "file": "deeptutor/services/memory/document.py",
+          "line": 54,
+          "symbol": "parse",
+          "detail": "parse+serialize module compiles unescaped footnote/marker regex without escape lookbehind (?<!\\\\); literal marker tokens in body text collide with structural markers on round-trip",
+          "confidence": "high",
+          "evidence": {
+            "rule": "unescaped-marker-regex",
+            "pattern": "^\\s*-\\s+(?P<text>.*?)(?P<markers>(?:\\s*,?\\s*\\[\\^\\d+\\])*)\\s*<!--\\s*(?P<id>)\\s*-->\\s*$"
+          },
+          "playbook_id": "parser-metadata"
+        }
+      },
+      "post_fix": {
+        "total_candidates": 17,
+        "falsified_filtered": 0,
+        "cleared_signatures": 1,
+        "remaining_signatures": 0,
+        "same_rule_hits": 0,
+        "cleared": true,
+        "fully_cleared": true
+      }
+    },
+    {
+      "id": "haystack-pipeline-non-mapping",
+      "repo": "haystack",
+      "fix_ref": "baa75f2",
+      "parent_ref": "baa75f2^",
+      "why": "_from_dict_impl calls .get('components', {}).items(), raising AttributeError on non-mapping values instead of DeserializationError.",
+      "pre_fix": {
+        "total_candidates": 24,
+        "falsified_filtered": 0,
+        "target_hits": 11,
+        "has_structural_hit": true,
+        "rank_of_first_hit": 1,
+        "recall_at_5": true,
+        "firing_oracles": [
+          "claims",
+          "parser_meta"
+        ],
+        "top_hit": {
+          "oracle": "parser_meta",
+          "family": "deserialization-guard",
+          "file": "haystack/core/pipeline/base.py",
+          "line": 247,
+          "symbol": "_from_dict_impl",
+          "detail": "calls .get('components', {}).items() in _from_dict_impl without validating that the present value is a mapping (null/list/scalar raises AttributeError)",
+          "confidence": "high",
+          "evidence": {
+            "rule": "unsafe-dict-get-items",
+            "key": "'components'",
+            "method": "items"
+          },
+          "playbook_id": "parser-metadata"
+        }
+      },
+      "post_fix": {
+        "total_candidates": 23,
+        "falsified_filtered": 0,
+        "cleared_signatures": 1,
+        "remaining_signatures": 0,
+        "same_rule_hits": 0,
+        "cleared": true,
+        "fully_cleared": true
+      }
+    },
+    {
+      "id": "haystack-splitter-bounds",
+      "repo": "haystack",
+      "fix_ref": "564c667",
+      "parent_ref": "564c667^",
+      "why": "DocumentSplitter promises split_length as maximum units per split, but sentence overlap exceeds split_length.",
+      "pre_fix": {
+        "total_candidates": 22,
+        "falsified_filtered": 0,
+        "target_hits": 6,
+        "has_structural_hit": false,
+        "rank_of_first_hit": 6,
+        "recall_at_5": false,
+        "firing_oracles": [
+          "claims"
+        ],
+        "top_hit": {
+          "oracle": "claims",
+          "family": "bounds",
+          "file": "haystack/components/preprocessors/document_splitter.py",
+          "line": 60,
+          "symbol": "__init__",
+          "detail": "[bounds/A] :param split_length: The maximum number of units in each split.",
+          "confidence": "medium",
+          "evidence": {
+            "rule": "stated-claim",
+            "claim_id": "c-0003",
+            "tier": "A"
+          },
+          "playbook_id": null
+        }
+      },
+      "post_fix": {
+        "total_candidates": 22,
+        "falsified_filtered": 0,
+        "cleared_signatures": 0,
+        "remaining_signatures": 5,
+        "same_rule_hits": 5,
+        "cleared": false,
+        "fully_cleared": false
+      }
+    },
+    {
+      "id": "mujoco-rollout-sequence",
+      "repo": "mujoco",
+      "fix_ref": "e04770b7",
+      "parent_ref": "e04770b7^",
+      "why": "rollout() annotates data as Sequence[MjData] while checking isinstance(data, list), misclassifying tuples.",
+      "pre_fix": {
+        "total_candidates": 18,
+        "falsified_filtered": 0,
+        "target_hits": 5,
+        "has_structural_hit": true,
+        "rank_of_first_hit": 1,
+        "recall_at_5": true,
+        "firing_oracles": [
+          "contracts"
+        ],
+        "top_hit": {
+          "oracle": "contracts",
+          "family": "type-contract",
+          "file": "python/mujoco/rollout.py",
+          "line": 181,
+          "symbol": "rollout",
+          "detail": "rollout annotates 'model' as Sequence/Iterable but narrows with isinstance(..., list), rejecting tuples and other valid sequences",
+          "confidence": "high",
+          "evidence": {
+            "rule": "sequence-isinstance-list",
+            "param": "model"
+          },
+          "playbook_id": "sibling-asymmetry"
+        }
+      },
+      "post_fix": {
+        "total_candidates": 16,
+        "falsified_filtered": 0,
+        "cleared_signatures": 1,
+        "remaining_signatures": 1,
+        "same_rule_hits": 1,
+        "cleared": true,
+        "fully_cleared": false
+      }
+    },
+    {
+      "id": "ha-omada-missing-key",
+      "repo": "home-assistant-core",
+      "fix_ref": "3ad265d94e0",
+      "parent_ref": "3ad265d94e0^",
+      "why": "OmadaDeviceSensor/PortSensor index self.coordinator.data[key] directly without guarding disappearing snapshot keys.",
+      "pre_fix": {
+        "total_candidates": 6,
+        "falsified_filtered": 0,
+        "target_hits": 2,
+        "has_structural_hit": true,
+        "rank_of_first_hit": 1,
+        "recall_at_5": true,
+        "firing_oracles": [
+          "contracts"
+        ],
+        "top_hit": {
+          "oracle": "contracts",
+          "family": "lifecycle-missing-key",
+          "file": "homeassistant/components/tplink_omada/sensor.py",
+          "line": 202,
+          "symbol": "native_value",
+          "detail": "native_value indexes coordinator.data[self.device.mac] directly without .get(), membership check, or KeyError guard; raises KeyError if snapshot row disappears",
+          "confidence": "high",
+          "evidence": {
+            "rule": "bare-coordinator-subscript",
+            "key": "self.device.mac"
+          },
+          "playbook_id": "lifecycle-missing-key"
+        }
+      },
+      "post_fix": {
+        "total_candidates": 4,
+        "falsified_filtered": 0,
+        "cleared_signatures": 1,
+        "remaining_signatures": 0,
+        "same_rule_hits": 0,
+        "cleared": true,
+        "fully_cleared": true
+      }
+    },
+    {
+      "id": "headroom-ws-reregister",
+      "repo": "headroom",
+      "fix_ref": "6fdd8f82",
+      "parent_ref": "6fdd8f82^",
+      "why": "WebSocketSessionRegistry.register() clears relay_tasks when the exact same handle object re-registers.",
+      "pre_fix": {
+        "total_candidates": 85,
+        "falsified_filtered": 0,
+        "target_hits": 4,
+        "has_structural_hit": true,
+        "rank_of_first_hit": 2,
+        "recall_at_5": true,
+        "firing_oracles": [
+          "claims",
+          "contracts"
+        ],
+        "top_hit": {
+          "oracle": "contracts",
+          "family": "lifecycle-reregister",
+          "file": "headroom/proxy/ws_session_registry.py",
+          "line": 132,
+          "symbol": "register",
+          "detail": "register mutates/clears 'existing' (.clear()) on lookup without checking `existing is <handle>` first; idempotent re-registration wipes live state",
+          "confidence": "high",
+          "evidence": {
+            "rule": "reregister-self-eviction",
+            "existing_var": "existing",
+            "destructive_call": "clear"
+          },
+          "playbook_id": "split-brain-dual-path"
+        }
+      },
+      "post_fix": {
+        "total_candidates": 84,
+        "falsified_filtered": 0,
+        "cleared_signatures": 1,
+        "remaining_signatures": 0,
+        "same_rule_hits": 0,
+        "cleared": true,
+        "fully_cleared": true
+      }
+    },
+    {
+      "id": "testsprite-testlist-junit",
+      "repo": "testsprite-cli",
+      "fix_ref": "7661422",
+      "parent_ref": "7661422^",
+      "why": "testlist.ts hand-rolls JUnit report checks instead of calling shared assertJUnitReportOptions used by sibling command.",
+      "pre_fix": {
+        "total_candidates": 1,
+        "falsified_filtered": 0,
+        "target_hits": 1,
+        "has_structural_hit": true,
+        "rank_of_first_hit": 1,
+        "recall_at_5": true,
+        "firing_oracles": [
+          "siblings"
+        ],
+        "top_hit": {
+          "oracle": "siblings",
+          "family": "sibling-asymmetry",
+          "file": "src/commands/testlist.ts",
+          "line": 501,
+          "symbol": "testlist",
+          "detail": "imports from 'junit-report' and checks (report, unit) options manually without calling shared validator assertJUnitReportOptions (used by src/commands/test.ts)",
+          "confidence": "high",
+          "evidence": {
+            "rule": "ts-validator-asymmetry",
+            "shared_module": "junit-report",
+            "validator": "assertJUnitReportOptions",
+            "validator_users": [
+              "src/commands/test.ts"
+            ]
+          },
+          "playbook_id": "sibling-asymmetry"
+        }
+      },
+      "post_fix": {
+        "total_candidates": 0,
+        "falsified_filtered": 0,
+        "cleared_signatures": 1,
+        "remaining_signatures": 0,
+        "same_rule_hits": 0,
+        "cleared": true,
+        "fully_cleared": true
+      }
+    }
+  ]
+}

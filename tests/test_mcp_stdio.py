@@ -74,7 +74,17 @@ def test_mcp_stdio_end_to_end_workflow(tmp_path: Path) -> None:
         _send(proc, {"jsonrpc": "2.0", "id": 3, "method": "tools/list"})
         list_resp = _recv(proc)
         names = {tool["name"] for tool in list_resp["result"]["tools"]}
-        assert names == {"bv_scan", "bv_probe", "bv_shrink", "bv_verify", "bv_ledger", "bv_gate"}
+        assert names == {
+            "bv_scan",
+            "bv_probe",
+            "bv_shrink",
+            "bv_verify",
+            "bv_ledger",
+            "bv_gate",
+            "bv_playbook",
+            "bv_falsify",
+            "bv_report",
+        }
 
         # 4. bv_scan (roundtrip)
         _send(
@@ -245,6 +255,82 @@ def test_mcp_stdio_end_to_end_workflow(tmp_path: Path) -> None:
         assert gate_data["state"] == "ready"
         assert gate_data["exit_code"] == 0
         assert len(gate_data["falsified"]) == 1
+
+        # 8b. bv_playbook + bv_falsify(vacuity) + bv_scan(all) + bv_report
+        _send(
+            proc,
+            {
+                "jsonrpc": "2.0",
+                "id": 101,
+                "method": "tools/call",
+                "params": {"name": "bv_playbook", "arguments": {"action": "get", "query": "parser"}},
+            },
+        )
+        pb_resp = _recv(proc)
+        assert pb_resp["result"]["isError"] is False
+        assert json.loads(pb_resp["result"]["content"][0]["text"])["id"] == "parser-metadata"
+
+        _send(
+            proc,
+            {
+                "jsonrpc": "2.0",
+                "id": 102,
+                "method": "tools/call",
+                "params": {
+                    "name": "bv_falsify",
+                    "arguments": {
+                        "mode": "vacuity",
+                        "test_file": str(next((runs_dir / "demo" / "probes").glob("*.py"))),
+                    },
+                },
+            },
+        )
+        vac_resp = _recv(proc)
+        assert vac_resp["result"]["isError"] is False
+        assert json.loads(vac_resp["result"]["content"][0]["text"])["vacuous"] is False
+
+        _send(
+            proc,
+            {
+                "jsonrpc": "2.0",
+                "id": 103,
+                "method": "tools/call",
+                "params": {
+                    "name": "bv_scan",
+                    "arguments": {
+                        "mode": "all",
+                        "run": "demo",
+                        "path": str(repo),
+                        "runs_dir": str(runs_dir),
+                    },
+                },
+            },
+        )
+        all_resp = _recv(proc)
+        assert all_resp["result"]["isError"] is False
+
+        _send(
+            proc,
+            {
+                "jsonrpc": "2.0",
+                "id": 104,
+                "method": "tools/call",
+                "params": {
+                    "name": "bv_report",
+                    "arguments": {
+                        "run": "demo",
+                        "runs_dir": str(runs_dir),
+                        "formats": ["markdown", "json", "sarif"],
+                        "include_pr": True,
+                    },
+                },
+            },
+        )
+        rep_resp = _recv(proc)
+        assert rep_resp["result"]["isError"] is False
+        rep_data = json.loads(rep_resp["result"]["content"][0]["text"])
+        assert rep_data["sarif_results"] >= 1
+        assert Path(rep_data["artifacts"]["sarif"]).exists()
 
         # 9. Malformed JSON line returns -32700 and server stays alive
         assert proc.stdin is not None
