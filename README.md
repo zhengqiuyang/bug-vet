@@ -1,15 +1,28 @@
-# bug-vet
+<p align="center">
+  <img src="src/bug_vet/plugin/assets/logo.svg" width="96" alt="bug-vet logo">
+</p>
 
-**Prove a bug before you report it.**
+<h1 align="center">bug-vet</h1>
+
+<p align="center"><b>Prove a bug before you report it.</b></p>
+
+<p align="center">
+  <a href="https://github.com/zhengqiuyang/bug-vet/actions/workflows/ci.yml"><img src="https://github.com/zhengqiuyang/bug-vet/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue?style=flat-square" alt="License: MIT"></a>
+  <a href="https://www.python.org/"><img src="https://img.shields.io/badge/python-3.10%2B-3776ab?style=flat-square" alt="Python 3.10+"></a>
+  <a href="CHANGELOG.md"><img src="https://img.shields.io/badge/version-0.4.1-informational?style=flat-square" alt="Version 0.4.1"></a>
+</p>
+
+<p align="center">
+  <a href="#quickstart">Quickstart</a> ·
+  <a href="#why-it-exists">Why it exists</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="#proof">Proof</a> ·
+  <a href="#integrations">Integrations</a> ·
+  <a href="docs/USER_GUIDE.md">中文指南</a>
+</p>
 
 `bug-vet` hunts the bugs ordinary linters miss: a sibling provider quietly drops a kwarg, a parser eats a trailing backtick, a `Sequence` parameter is narrowed to `list`, a generator is drained twice. A promising candidate has to become a self-checked executable probe, survive a falsifier, and clear red/green evidence before it counts as a finding.
-
-[![CI](https://github.com/zhengqiuyang/bug-vet/actions/workflows/ci.yml/badge.svg)](https://github.com/zhengqiuyang/bug-vet/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
-[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776ab?style=flat-square)](https://www.python.org/)
-[![Version](https://img.shields.io/badge/version-0.4.1-informational?style=flat-square)](CHANGELOG.md)
-
-[Quickstart](#quickstart) · [Why it exists](#why-it-exists) · [How it works](#how-it-works) · [Proof](#proof) · [Interfaces](#interfaces) · [中文指南](docs/USER_GUIDE.md)
 
 Zero runtime dependencies, Python 3.10+, stdlib-only MCP server. Everything runs locally: no account, no telemetry, no code leaves your machine.
 
@@ -23,7 +36,7 @@ bug-vet scan --mode all /path/to/repo --name demo --runs-dir ~/.bug-vet-runs
 bug-vet status demo --runs-dir ~/.bug-vet-runs
 ```
 
-Working on `bug-vet` itself: `pip install -e ".[dev]"` then `pytest -q` (40 tests).
+Working on `bug-vet` itself: `pip install -e ".[dev]"` then `pytest -q` (41 tests).
 
 ## Why it exists
 
@@ -67,7 +80,22 @@ The suite covers `instructor`, `litellm`, `pr-agent`, `headroom`, `DeepTutor`, `
 
 Five compiled playbooks (`bug-vet playbook --list`) describe each family's probe recipe and the falsification traps to check first.
 
-## Interfaces
+## Integrations
+
+`bug-vet` is agent-agnostic: the CLI and the MCP server write to the same evidence ledger, so any coding agent can run a full audit.
+
+| Host | How to connect |
+|---|---|
+| Any MCP client (Claude Code, Cursor, Codex, dsh, custom agents) | run `bug-vet mcp` over stdio |
+| Antigravity (optional) | `bug-vet setup --client antigravity --apply` installs a native bundle |
+
+```json
+{ "mcpServers": { "bug-vet": { "command": "bug-vet", "args": ["mcp"] } } }
+```
+
+The server exposes nine tools: `bv_scan`, `bv_playbook`, `bv_probe`, `bv_falsify`, `bv_shrink`, `bv_verify`, `bv_ledger`, `bv_gate`, `bv_report`.
+
+The optional Antigravity bundle packages the same workflow as three on-demand skills, a `bug-vet-hunter` writer plus a read-only `bug-vet-falsifier`, always-on rules, and two `PreToolUse` hooks that reject vacuous probes under `probes/` and force confirmation before `git push`, PR creation, or package publishing.
 
 <details>
 <summary><b>CLI workflow</b></summary>
@@ -84,25 +112,6 @@ Five compiled playbooks (`bug-vet playbook --list`) describe each family's probe
 | `bug-vet report <run> --formats markdown,json,sarif` | REPORT.md, findings.json, SARIF 2.1.0, PR.md |
 
 </details>
-
-<details>
-<summary><b>MCP server (9 tools)</b></summary>
-
-`bug-vet mcp` speaks JSON-RPC over stdio with no dependencies. Tools: `bv_scan`, `bv_playbook`, `bv_probe`, `bv_falsify`, `bv_shrink`, `bv_verify`, `bv_ledger`, `bv_gate`, `bv_report`.
-
-```json
-{ "mcpServers": { "bug-vet": { "command": "bug-vet", "args": ["mcp"] } } }
-```
-
-</details>
-
-## Antigravity plugin
-
-The package ships a native Antigravity plugin bundle in [`src/bug_vet/plugin/`](src/bug_vet/plugin/): three on-demand skills (`bug-vet-hunt`, `bug-vet-verify`, `bug-vet-bench`), a `bug-vet-hunter` writer plus a read-only `bug-vet-falsifier`, always-on rules, and two `PreToolUse` hooks that reject vacuous probes under `probes/` and force confirmation before `git push`, PR creation, or package publishing.
-
-```bash
-bug-vet setup --client antigravity --apply --plugin-dir ~/.gemini/config/plugins/bug-vet
-```
 
 ## Limits
 
