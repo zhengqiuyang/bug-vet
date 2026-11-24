@@ -1,0 +1,575 @@
+"""CLI entry point for bug-vet (and ``bugvet`` alias)."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from bug_vet import __version__, collide, gate, ledger as ledger_mod, mcp_server, runner, setup_agents, shrinker, verify
+from bug_vet.oracles import claims as claims_oracle, roundtrip as roundtrip_oracle
+from bug_vet.paths import ensure_run, run_dir
+
+ARTIFACTS = (
+    "gate.json",
+    "claims.json",
+    "ledger.json",
+    "probes",
+    "probe-results.json",
+    "probe-baseline.json",
+    "verification.json",
+    "shrink-results.json",
+    "diff-results.json",
+    "examples-results.json",
+    "callsites-results.json",
+    "collision-results.json",
+    "issues-results.json",
+)
+
+
+def _runs_dir_of(args: argparse.Namespace) -> str | None:
+    return getattr(args, "runs_dir_sub", None) or getattr(args, "runs_dir", None)
+
+
+def _configure_stdio_utf8() -> None:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+
+def cmd_init(args: argparse.Namespace) -> int:
+    path = ensure_run(args.name, runs_dir=_runs_dir_of(args))
+    print(f"run directory: {path}")
+    return 0
+
+
+def cmd_scan(args: argparse.Namespace) -> int:
+    runs_dir = _runs_dir_of(args)
+    if args.mode == "claims":
+        res = claims_oracle.run_claims_scan(
+            args.name,
+            args.path,
+            runs_dir=runs_dir,
+            include_tests=args.include_tests,
+            tier=args.tier,
+            max_per_family=args.max_per_family,
+            reachable_only=not args.include_unreachable,
+        )
+        print(f"{res['count']} claims -> {res['claims_file']}")
+        for kind, count in sorted(res["by_kind"].items(), key=lambda kv: -kv[1]):
+            print(f"  {kind:14s} {count:4d}")
+        print(f"{res['obligations']} obligation(s) -> {res['ledger_file']}")
+        return 0
+
+    if args.mode == "roundtrip":
+        res = roundtrip_oracle.generate_roundtrip_probes(
+            args.name,
+            args.path,
+            import_root=args.import_root,
+            runs_dir=runs_dir,
+        )
+        print(f"{res['count']} round-trip probe(s) generated")
+        for item in res["generated"]:
+            print(f"  {item['probe']} ({item['obligation_id']}) -> {len(item['pairs'])} pair(s)")
+        return 0
+
+    if args.mode == "examples":
+        res = claims_oracle.run_examples(
+            args.name,
+            args.path,
+            runs_dir=runs_dir,
+            lang=args.lang,
+            python=args.python,
+            cwd=args.cwd,
+            timeout=args.timeout,
+        )
+        print(f"{res['total']} example(s) -> {res['artifact']}: {res['counts']}")
+        for row in res["results"]:
+            if row["verdict"] == "FAIL":
+                print(f"  FAIL {row['example']} ({Path(row['doc']).name}:{row['line']})")
+        return 0
+
+    if args.mode == "callsites":
+        if not args.function:
+            print("error: --mode callsites requires --function", file=sys.stderr)
+            return 2
+        res = claims_oracle.scan_callsites(
+            args.name,
+            args.path,
+            args.function,
+            runs_dir=runs_dir,
+            lang=args.lang,
+        )
+        print(f"{res['function']}: {len(res['calls'])} call site(s) -> {res['artifact']}")
+        for row in res.get("definitions", []):
+            if row.get("unwired"):
+                print(f"  UNWIRED options in {row['defined_in']}:{row['line']}: {row['unwired']}")
+        return 0
+
+    print(f"unknown scan mode: {args.mode}", file=sys.stderr)
+    return 2
+
+
+def cmd_new_probe(args: argparse.Namespace) -> int:
+    target = runner.scaffold_probe(
+        args.name,
+        args.claim,
+        runs_dir=_runs_dir_of(args),
+        family=args.family,
+        ecosystem=args.ecosystem,
+        description=args.description,
+        out=args.out,
+    )
+    print(f"scaffolded {target}")
+    return 0
+
+
+def cmd_probe(args: argparse.Namespace) -> int:
+    res = runner.run_probes(
+        args.name,
+        runs_dir=_runs_dir_of(args),
+        python=args.python,
+        cwd=args.cwd,
+        env_pairs=args.env,
+        timeout=args.timeout,
+    )
+    for row in res["results"]:
+        sc = "" if row["has_self_check"] else " [NO self_check]"
+        print(f"{row['verdict']:12s} {row['probe']}{sc}")
+    print(f"\n{res['count']} probe(s), {res['failures']} needing attention -> {res['artifact']}")
+    print(res["ledger_summary"])
+    return 0
+
+
+def cmd_shrink(args: argparse.Namespace) -> int:
+    res = shrinker.run_shrink(
+        args.name,
+        args.script,
+        args.input,
+        runs_dir=_runs_dir_of(args),
+        python=args.python,
+        cwd=args.cwd,
+        env_pairs=args.env,
+        timeout=args.timeout,
+        max_runs=args.max_runs,
+    )
+    print(f"shrunk {res['original_bytes']} -> {res['minimal_bytes']} bytes in {res['candidates_tried']} runs")
+    print(f"minimal: {res['minimal_file']}")
+    print(json.dumps(res["minimal"], ensure_ascii=False, indent=2)[:2000])
+    if not res["confirmed"]:
+        print("FAIL: minimal input no longer reproduces", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_baseline(args: argparse.Namespace) -> int:
+    res = verify.snapshot_baseline(
+        args.name,
+        runs_dir=_runs_dir_of(args),
+        python=args.python,
+        cwd=args.cwd,
+        env_pairs=args.env,
+        timeout=args.timeout,
+    )
+    for row in res["results"]:
+        print(f"{row['verdict']:12s} {row['probe']}")
+    print(f"\nbaseline: {res['count']} probe(s), {len(res['failing'])} failing -> {res['artifact']}")
+    return 0
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    res = verify.verify_fix(
+        args.name,
+        runs_dir=_runs_dir_of(args),
+        python=args.python,
+        cwd=args.cwd,
+        env_pairs=args.env,
+        timeout=args.timeout,
+    )
+    print(f"fixed (red -> green): {len(res['fixed'])}")
+    for name in res["fixed"]:
+        print(f"  {res['before'][name]} -> PASS  {name}")
+    if res["still_failing"]:
+        print(f"still failing: {res['still_failing']}")
+    if res["regressed"]:
+        print(f"REGRESSED: {res['regressed']}")
+    print(f"artifact: {res['artifact']}")
+    return 0 if res["ok"] else 1
+
+
+def cmd_test_evidence(args: argparse.Namespace) -> int:
+    res = verify.run_test_evidence(
+        args.name,
+        args.obligation,
+        args.cmd,
+        runs_dir=_runs_dir_of(args),
+        python=args.python,
+        cwd=args.cwd,
+        env_pairs=args.env,
+        timeout=args.timeout,
+    )
+    print(f"test-evidence {res['verdict']} ({res['authority']}) -> {res['evidence_id']}")
+    print(res["ledger_summary"])
+    return 0 if res["exit_code"] == 0 else 1
+
+
+def cmd_diff(args: argparse.Namespace) -> int:
+    res = verify.run_diff(
+        args.name,
+        args.scenario,
+        args.inputs,
+        runs_dir=_runs_dir_of(args),
+        old_python=args.old_python,
+        new_python=args.new_python,
+        pip_version=args.pip_version,
+        pip_package=args.pip_package,
+        pip_python=args.pip_python,
+        old_env=args.old_env,
+        new_env=args.new_env,
+        cwd=args.cwd,
+        timeout=args.timeout,
+        max_diffs=args.max_diffs,
+        obligation_id=args.obligation,
+    )
+    print(f"{res['different']} differing result(s) -> {res['artifact']}")
+    if "ledger_summary" in res:
+        print(res["ledger_summary"])
+    return 0
+
+
+def cmd_ledger(args: argparse.Namespace) -> int:
+    path = run_dir(args.name, runs_dir=_runs_dir_of(args))
+    if not path.exists():
+        print(f"error: no run at {path}", file=sys.stderr)
+        return 2
+    state = ledger_mod.load(path)
+    if not state["obligations"]:
+        print(f"no obligations under {path}", file=sys.stderr)
+        return 2
+    report = ledger_mod.evaluate(state, probe_dir=path / "probes")
+    if args.json:
+        print(json.dumps(report, indent=2, ensure_ascii=False))
+        return 0
+    print(f"state: {report['state']}  ({ledger_mod.summary(state, probe_dir=path / 'probes')})")
+    rows = (
+        state["obligations"]
+        if args.all
+        else [ob for ob in state["obligations"] if ob.get("disposition") != "probed-pass"]
+    )
+    for ob in rows[: args.limit]:
+        print(
+            f"  {ob['id']:12s} {ob['disposition']:12s} [{ob['family']:14s}] "
+            f"{ob['source']}:{ob['line']}  {ob['text'][:70]}"
+        )
+    return 0
+
+
+def cmd_falsify(args: argparse.Namespace) -> int:
+    path = run_dir(args.name, runs_dir=_runs_dir_of(args))
+    state, ev = ledger_mod.record_falsification(
+        path,
+        args.obligation,
+        args.reason,
+        args.category,
+        source_location=args.location,
+    )
+    print(f"falsified {ev['obligation_id']} ({args.category}) -> {ev['id']}")
+    print(ledger_mod.summary(state, probe_dir=path / "probes"))
+    return 0
+
+
+def cmd_gate(args: argparse.Namespace) -> int:
+    res = gate.evaluate_gate(
+        args.name,
+        runs_dir=_runs_dir_of(args),
+        require_verification=args.require_verification,
+        require_collision=args.require_collision,
+    )
+    counts = res["counts"]
+    print(
+        f"obligations  fail={counts.get('probed-fail', 0)} pass={counts.get('probed-pass', 0)} "
+        f"falsified={counts.get('falsified', 0)} unknown={counts.get('unknown', 0)} "
+        f"active={counts.get('active', 0)}"
+    )
+    for finding in res["findings"]:
+        weak = " (weak contract: prose only)" if finding["weak_contract"] else ""
+        print(f"FINDING {finding['id']} [{finding['family']}] {finding['source']}:{finding['line']}{weak}")
+    for blocker in res["blockers"][:10]:
+        print(f"BLOCK   {blocker['kind']}: {blocker.get('obligation') or blocker.get('probe') or ''}")
+    print(f"\ngate: {res['state'].upper()} -> {res['artifact']}")
+    return int(res["exit_code"])
+
+
+def cmd_issues(args: argparse.Namespace) -> int:
+    res = collide.scan_issues(
+        args.repo,
+        runs_dir=_runs_dir_of(args),
+        name=args.name,
+        label=args.label,
+        limit=args.limit,
+        show=args.show,
+    )
+    print(f"{res['total']} open issue(s), {res['unclaimed']} unclaimed -> {res['artifact']}")
+    for row in res["rows"]:
+        state = "UNCLAIMED" if row["unclaimed"] else "claimed"
+        links = ",".join(f"#{ref['number']}" for ref in row["linked_prs"]) or "-"
+        print(f"  {state:9s} #{row['number']:<5d} {row['created']} links={links:12s} {row['title'][:70]}")
+    return 0
+
+
+def cmd_collide(args: argparse.Namespace) -> int:
+    res = collide.check_collision(
+        args.repo,
+        issue=args.issue,
+        keywords=args.keyword,
+        files=args.file,
+        runs_dir=_runs_dir_of(args),
+        name=args.name,
+        require_clear=args.require_clear,
+    )
+    print(f"verdict: {res['verdict']}")
+    for finding in res["findings"]:
+        print(f" - {finding['kind']}: #{finding['number']} {finding['title']}")
+    print(f"artifact: {res['artifact']}")
+    return 1 if res["blocked"] else 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    path = run_dir(args.name, runs_dir=_runs_dir_of(args))
+    if not path.exists():
+        print(f"no run named {args.name!r} at {path}", file=sys.stderr)
+        return 2
+    print(f"run: {path}")
+    for artifact in ARTIFACTS:
+        target = path / artifact
+        if target.is_dir():
+            files = sorted(p.name for p in target.iterdir())
+            print(f"  {artifact:22s} dir ({len(files)} files)")
+        elif target.exists():
+            print(f"  {artifact:22s} {target.stat().st_size} bytes")
+        else:
+            print(f"  {artifact:22s} -")
+    return 0
+
+
+def cmd_setup(args: argparse.Namespace) -> int:
+    res = setup_agents.run_setup(
+        client=args.client,
+        apply=args.apply,
+        project_dir=args.project_dir,
+        command=args.command_bin,
+    )
+    if args.json:
+        print(json.dumps(res, indent=2, ensure_ascii=False))
+        return 0
+    for name, cfg in res["configs"].items():
+        print(f"=== {name} ({cfg['target']}) ===")
+        if cfg["format"] == "json":
+            print(json.dumps(cfg["payload"], indent=2, ensure_ascii=False))
+        else:
+            print(cfg["snippet"].rstrip())
+    if res["applied"]:
+        print("\nApplied:")
+        for item in res["applied"]:
+            bak = f" (backup: {item['backup']})" if item["backup"] else ""
+            print(f"  wrote {item['file']}{bak}")
+    elif not args.apply:
+        print("\nPreview only (no files modified). Pass --apply --project-dir <path> to write project configs.")
+    return 0
+
+
+def cmd_mcp(_args: argparse.Namespace) -> int:
+    return mcp_server.serve_stdio()
+
+
+def build_parser() -> argparse.ArgumentParser:
+    runs_parent = argparse.ArgumentParser(add_help=False)
+    runs_parent.add_argument(
+        "--runs-dir",
+        dest="runs_dir_sub",
+        default=None,
+        help="base runs directory (default: BUG_VET_RUNS_DIR or ./.bug-vet/runs)",
+    )
+
+    parser = argparse.ArgumentParser(
+        prog="bug-vet",
+        description="bug-vet: vet silent contract bugs with executable red/green proof",
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    parser.add_argument(
+        "--runs-dir",
+        default=None,
+        help="base runs directory (default: BUG_VET_RUNS_DIR or ./.bug-vet/runs)",
+    )
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    p_init = sub.add_parser("init", parents=[runs_parent], help="create a run directory")
+    p_init.add_argument("name")
+    p_init.set_defaults(func=cmd_init)
+
+    p_scan = sub.add_parser("scan", parents=[runs_parent], help="run claims/roundtrip/examples/callsites scans")
+    p_scan.add_argument("path")
+    p_scan.add_argument("--name", required=True)
+    p_scan.add_argument(
+        "--mode",
+        choices=["claims", "roundtrip", "examples", "callsites"],
+        default="claims",
+    )
+    p_scan.add_argument("--tier", choices=["A", "B", "all"], default="A")
+    p_scan.add_argument("--max-per-family", type=int, default=40)
+    p_scan.add_argument("--include-tests", action="store_true")
+    p_scan.add_argument("--include-unreachable", action="store_true")
+    p_scan.add_argument("--import-root", help="package import root for roundtrip")
+    p_scan.add_argument("--function", help="target function for callsites")
+    p_scan.add_argument("--lang", default="python")
+    p_scan.add_argument("--python")
+    p_scan.add_argument("--cwd")
+    p_scan.add_argument("--timeout", type=int, default=120)
+    p_scan.set_defaults(func=cmd_scan)
+
+    p_new = sub.add_parser("new-probe", parents=[runs_parent], help="scaffold a standalone probe")
+    p_new.add_argument("name")
+    p_new.add_argument("--claim", required=True)
+    p_new.add_argument("--family", default="roundtrip")
+    p_new.add_argument("--ecosystem", default="python")
+    p_new.add_argument("--description")
+    p_new.add_argument("--out")
+    p_new.set_defaults(func=cmd_new_probe)
+
+    p_probe = sub.add_parser("probe", parents=[runs_parent], help="run probes and record ledger evidence")
+    p_probe.add_argument("name")
+    p_probe.add_argument("--python")
+    p_probe.add_argument("--cwd")
+    p_probe.add_argument("--timeout", type=int, default=300)
+    p_probe.add_argument("--env", action="append", metavar="KEY=VALUE")
+    p_probe.set_defaults(func=cmd_probe)
+
+    p_shrink = sub.add_parser("shrink", parents=[runs_parent], help="delta-debug a failing JSON input")
+    p_shrink.add_argument("name")
+    p_shrink.add_argument("--script", required=True)
+    p_shrink.add_argument("--input", required=True)
+    p_shrink.add_argument("--python")
+    p_shrink.add_argument("--cwd")
+    p_shrink.add_argument("--timeout", type=int, default=120)
+    p_shrink.add_argument("--max-runs", type=int, default=300)
+    p_shrink.add_argument("--env", action="append", metavar="KEY=VALUE")
+    p_shrink.set_defaults(func=cmd_shrink)
+
+    p_base = sub.add_parser("baseline", parents=[runs_parent], help="snapshot pre-fix probe verdicts")
+    p_base.add_argument("name")
+    p_base.add_argument("--python")
+    p_base.add_argument("--cwd")
+    p_base.add_argument("--timeout", type=int, default=300)
+    p_base.add_argument("--env", action="append", metavar="KEY=VALUE")
+    p_base.set_defaults(func=cmd_baseline)
+
+    p_verify = sub.add_parser("verify", parents=[runs_parent], help="compare post-fix probes to baseline")
+    p_verify.add_argument("name")
+    p_verify.add_argument("--python")
+    p_verify.add_argument("--cwd")
+    p_verify.add_argument("--timeout", type=int, default=300)
+    p_verify.add_argument("--env", action="append", metavar="KEY=VALUE")
+    p_verify.set_defaults(func=cmd_verify)
+
+    p_test = sub.add_parser("test-evidence", parents=[runs_parent], help="run a repo test cmd for test-authority evidence")
+    p_test.add_argument("name")
+    p_test.add_argument("--obligation", required=True)
+    p_test.add_argument("--cmd", required=True)
+    p_test.add_argument("--python")
+    p_test.add_argument("--cwd")
+    p_test.add_argument("--timeout", type=int, default=300)
+    p_test.add_argument("--env", action="append", metavar="KEY=VALUE")
+    p_test.set_defaults(func=cmd_test_evidence)
+
+    p_diff = sub.add_parser("diff", parents=[runs_parent], help="compare a scenario across two versions")
+    p_diff.add_argument("name")
+    p_diff.add_argument("--scenario", required=True)
+    p_diff.add_argument("--inputs", required=True)
+    p_diff.add_argument("--old-python")
+    p_diff.add_argument("--new-python")
+    p_diff.add_argument("--cwd")
+    p_diff.add_argument("--timeout", type=int, default=600)
+    p_diff.add_argument("--pip-version")
+    p_diff.add_argument("--pip-package")
+    p_diff.add_argument("--pip-python", default="3.12")
+    p_diff.add_argument("--old-env", action="append", metavar="KEY=VALUE")
+    p_diff.add_argument("--new-env", action="append", metavar="KEY=VALUE")
+    p_diff.add_argument("--max-diffs", type=int, default=50)
+    p_diff.add_argument("--obligation")
+    p_diff.set_defaults(func=cmd_diff)
+
+    p_ledger = sub.add_parser("ledger", parents=[runs_parent], help="inspect obligation ledger and readiness")
+    p_ledger.add_argument("name")
+    p_ledger.add_argument("--json", action="store_true")
+    p_ledger.add_argument("--all", action="store_true")
+    p_ledger.add_argument("--limit", type=int, default=25)
+    p_ledger.set_defaults(func=cmd_ledger)
+
+    p_falsify = sub.add_parser("falsify", parents=[runs_parent], help="mark an obligation falsified with reason")
+    p_falsify.add_argument("name")
+    p_falsify.add_argument("--obligation", required=True)
+    p_falsify.add_argument("--reason", required=True)
+    p_falsify.add_argument("--category", default="false-positive")
+    p_falsify.add_argument("--location")
+    p_falsify.set_defaults(func=cmd_falsify)
+
+    p_gate = sub.add_parser("gate", parents=[runs_parent], help="run fail-closed readiness gate")
+    p_gate.add_argument("name")
+    p_gate.add_argument("--require-verification", action="store_true")
+    p_gate.add_argument("--require-collision", action="store_true")
+    p_gate.set_defaults(func=cmd_gate)
+
+    p_issues = sub.add_parser("issues", parents=[runs_parent], help="list open unclaimed GitHub issues")
+    p_issues.add_argument("repo")
+    p_issues.add_argument("--name")
+    p_issues.add_argument("--label")
+    p_issues.add_argument("--limit", type=int, default=50)
+    p_issues.add_argument("--show", type=int, default=25)
+    p_issues.set_defaults(func=cmd_issues)
+
+    p_col = sub.add_parser("collide", parents=[runs_parent], help="check PR/timeline collisions on GitHub")
+    p_col.add_argument("repo")
+    p_col.add_argument("--issue", type=int)
+    p_col.add_argument("--keyword", action="append")
+    p_col.add_argument("--file", action="append")
+    p_col.add_argument("--name")
+    p_col.add_argument("--require-clear", action="store_true")
+    p_col.set_defaults(func=cmd_collide)
+
+    p_status = sub.add_parser("status", parents=[runs_parent], help="show artifacts in a run")
+    p_status.add_argument("name")
+    p_status.set_defaults(func=cmd_status)
+
+    p_setup = sub.add_parser("setup", help="preview or apply MCP config for coding agents")
+    p_setup.add_argument("--client", choices=["all", *setup_agents.SUPPORTED_CLIENTS], default="all")
+    p_setup.add_argument("--apply", action="store_true")
+    p_setup.add_argument("--project-dir")
+    p_setup.add_argument("--command-bin", default="bug-vet")
+    p_setup.add_argument("--json", action="store_true")
+    p_setup.set_defaults(func=cmd_setup)
+
+    p_mcp = sub.add_parser("mcp", help="start zero-dependency stdio MCP server")
+    p_mcp.set_defaults(func=cmd_mcp)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.command != "mcp":
+        _configure_stdio_utf8()
+    try:
+        return int(args.func(args))
+    except (FileNotFoundError, NotADirectoryError, ValueError, KeyError, LookupError, RuntimeError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
