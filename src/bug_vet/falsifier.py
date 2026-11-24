@@ -341,6 +341,30 @@ def _helper_call_records_failures(
     return False
 
 
+def _self_check_has_signal(node: ast.AST) -> bool:
+    """Return True when ``self_check`` can plausibly report a broken checker.
+
+    Branching, asserting, raising, comprehensions, awaits, and any call are all
+    treated as signals, so helper-delegated and ternary-style checkers are not
+    misreported as empty.
+    """
+    signals = (
+        ast.Assert,
+        ast.Raise,
+        ast.If,
+        ast.IfExp,
+        ast.While,
+        ast.Try,
+        ast.Call,
+        ast.ListComp,
+        ast.SetComp,
+        ast.DictComp,
+        ast.GeneratorExp,
+        ast.Await,
+    )
+    return any(isinstance(sub, signals) for sub in ast.walk(node))
+
+
 def audit_source_vacuity(
     source: str,
     *,
@@ -368,14 +392,13 @@ def audit_source_vacuity(
         functions_checked += 1
 
         if node.name == "self_check":
-            has_branch_or_assert = any(isinstance(sub, (ast.If, ast.Assert, ast.Raise)) for sub in ast.walk(node))
-            if not has_branch_or_assert:
+            if not _self_check_has_signal(node):
                 findings.append(
                     {
                         "kind": "empty-self-check",
                         "function": node.name,
                         "line": node.lineno,
-                        "detail": "self_check() has no conditional branch or assertion and always returns pass",
+                        "detail": "self_check() neither branches, calls, nor asserts anything and always reports success",
                     }
                 )
             continue

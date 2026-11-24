@@ -14,10 +14,19 @@ SUPPORTED_CLIENTS = ("claude", "cursor", "codex", "dsh", "antigravity")
 
 
 def _default_plugin_source() -> Path:
-    candidate = Path(__file__).resolve().parents[2] / "plugin"
-    if not candidate.is_dir():
-        raise FileNotFoundError(f"canonical plugin bundle directory not found: {candidate}")
-    return candidate
+    """Locate the canonical plugin bundle shipped inside the installed package.
+
+    The bundle lives at ``bug_vet/plugin`` so wheels and sdists contain it; the
+    repository-root ``plugin`` fallback keeps older source checkouts working.
+    """
+    package_root = Path(__file__).resolve().parent
+    repo_root = package_root.parents[1] if len(package_root.parents) > 1 else package_root
+    candidates = [package_root / "plugin", repo_root / "plugin"]
+    for candidate in candidates:
+        if (candidate / "plugin.json").is_file():
+            return candidate
+    checked = ", ".join(str(path) for path in candidates)
+    raise FileNotFoundError(f"canonical plugin bundle directory not found (checked: {checked})")
 
 
 def _hook_python_prefix(python_bin: str) -> str:
@@ -48,7 +57,7 @@ def _render_hooks_config(python_bin: str) -> dict[str, Any]:
         "bug-vet-probe-vacuity-guard": {
             "PreToolUse": [
                 {
-                    "matcher": "write_file",
+                    "matcher": "write_file|edit_file|multi_edit_file|replace_file_content",
                     "hooks": [
                         {
                             "type": "command",

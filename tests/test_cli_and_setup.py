@@ -36,6 +36,17 @@ def test_cli_help_and_alias() -> None:
         assert "falsify" in proc.stdout
 
 
+def test_plugin_bundle_lives_in_package_data() -> None:
+    import importlib.resources as resources
+
+    from bug_vet import setup_agents
+
+    plugin_root = setup_agents._default_plugin_source()
+    assert plugin_root.name == "plugin"
+    assert (plugin_root / "hooks" / "guard_probe_vacuity.py").is_file()
+    assert resources.files("bug_vet").joinpath("plugin", "plugin.json").is_file()
+
+
 def test_setup_preview_and_safe_project_apply(tmp_path: Path) -> None:
     # Preview does not modify disk
     preview = subprocess.run(
@@ -178,6 +189,27 @@ def test_setup_antigravity_plugin_bundle_and_hooks(tmp_path: Path) -> None:
         extra_env={"BUG_VET_ALLOW_REMOTE": "1"},
     )["decision"] == "allow"
 
+    # Remote-write variants that previously slipped through
+    for remote in (
+        "git -C D:\\repo push origin main",
+        "git -c core.pager=cat push origin HEAD",
+        "npm publish --access public",
+        "yarn publish",
+        "cargo publish",
+        "gh release create v1.0.0",
+        "git send-email --to a@b.example",
+    ):
+        decision = _run_hook(
+            local_cmd, plugin_dest, {"toolCall": {"name": "run_command", "args": {"CommandLine": remote}}}
+        )["decision"]
+        assert decision == "force_ask", remote
+
+    for local_ok in ("git status --short", "git log --grep push", "npm test", "pytest -q"):
+        decision = _run_hook(
+            local_cmd, plugin_dest, {"toolCall": {"name": "run_command", "args": {"CommandLine": local_ok}}}
+        )["decision"]
+        assert decision == "allow", local_ok
+
     assert _run_hook(
         vac_cmd,
         plugin_dest,
@@ -206,6 +238,76 @@ def test_setup_antigravity_plugin_bundle_and_hooks(tmp_path: Path) -> None:
         plugin_dest,
         {"toolCall": {"name": "write_file", "args": {"Path": "/tmp/other/helper.py", "Content": "x = 1\n"}}},
     )["decision"] == "allow"
+
+    # Legitimate checker styles must not be misreported as empty
+    for legit in (
+        "def self_check():\n    return [] if 1 == 1 else ['x']\n\ndef check(failures):\n    failures.append('bad')\n",
+        "def _probe():\n    return []\n\ndef self_check():\n    return _probe()\n\ndef check(failures):\n    failures.append('bad')\n",
+        "import unittest\n\ndef self_check():\n    unittest.TestCase().assertEqual(1, 1)\n\ndef check(failures):\n    failures.append('bad')\n",
+    ):
+        decision = _run_hook(
+            vac_cmd,
+            plugin_dest,
+            {"toolCall": {"name": "write_file", "args": {"Path": "/tmp/run/probes/legit.py", "Content": legit}}},
+        )["decision"]
+        assert decision == "allow", legit
+
+    # edit_file is guarded too: an edit that erases self_check() needs confirmation
+    probe_dir = plugin_dest / "probes"
+    probe_dir.mkdir()
+    probe_file = probe_dir / "p_edit.py"
+    probe_file.write_text(
+        "def self_check():\n    assert 1 == 1\n\ndef check(failures):\n    failures.append('x')\n",
+        encoding="utf-8",
+    )
+    erased = _run_hook(
+        vac_cmd,
+        plugin_dest,
+        {
+            "toolCall": {
+                "name": "edit_file",
+                "args": {
+                    "Path": str(probe_file),
+                    "Target": "def self_check():",
+                    "Replacement": "def helper():",
+                },
+            }
+        },
+    )
+    assert erased["decision"] == "force_ask"
+
+    benign_edit = _run_hook(
+        vac_cmd,
+        plugin_dest,
+        {
+            "toolCall": {
+                "name": "edit_file",
+                "args": {
+                    "Path": str(probe_file),
+                    "Target": "assert 1 == 1",
+                    "Replacement": "assert 2 == 2",
+                },
+            }
+        },
+    )
+    assert benign_edit["decision"] == "allow"
+
+    # Appending keeps the existing probe visible to the audit
+    appended = _run_hook(
+        vac_cmd,
+        plugin_dest,
+        {
+            "toolCall": {
+                "name": "write_file",
+                "args": {
+                    "Path": str(probe_file),
+                    "Content": "\ndef check(failures):\n    pass\n",
+                    "Append": True,
+                },
+            }
+        },
+    )
+    assert appended["decision"] == "deny"
 
 
 def test_cli_end_to_end_with_runs_dir_before_and_after_subcommand(tmp_path: Path) -> None:

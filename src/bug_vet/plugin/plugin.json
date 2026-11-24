@@ -1,7 +1,7 @@
 {
   "name": "bug-vet",
   "displayName": "bug-vet",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Contract-bug hunter harness with structural oracles, Hunter/Falsifier subagents, vacuity & local-only hooks, and a zero-dependency MCP server.",
   "logo": "assets/logo.svg",
   "author": {

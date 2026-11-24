@@ -213,3 +213,30 @@ def test_contradiction_inconclusive_env_change_and_unbound_probe(tmp_path: Path)
     g4 = gate.evaluate_gate("r4", runs_dir=runs_dir)
     assert any(b["kind"] == "environment-changed" for b in g4["blockers"])
     assert g4["state"] == "partial"
+
+
+def test_error_code_verdicts_are_non_definite_and_counted(tmp_path: Path) -> None:
+    from bug_vet import runner
+
+    assert runner.is_failing_verdict("ERROR(-1)") is True
+    assert runner.is_failing_verdict("ERROR(7)") is True
+    assert runner.is_failing_verdict("PASS") is False
+    assert runner.is_failing_verdict("INCONCLUSIVE") is False
+    assert ledger_mod.is_non_definite_verdict("ERROR(7)") is True
+    assert ledger_mod.is_non_definite_verdict("PASS") is False
+
+    runs_dir = tmp_path / "runs"
+    run = runs_dir / "err-run"
+    (run / "probes").mkdir(parents=True)
+    ledger_mod.sync_obligations(run, [_claims()[0]])
+    ledger_mod.record_probe_run(
+        run,
+        [{"probe": "p1.py", "claim": "c-0001", "verdict": "ERROR(7)", "exit_code": 7, "output": "crashed"}],
+        "python",
+        run,
+    )
+    state = ledger_mod.load(run)
+    assert state["obligations"][0]["disposition"] == "unknown"
+    report = ledger_mod.evaluate(state)
+    assert any(b["kind"] == "inconclusive" for b in report["blockers"])
+    assert report["state"] == "partial"

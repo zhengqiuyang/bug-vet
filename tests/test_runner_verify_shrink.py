@@ -7,6 +7,20 @@ from pathlib import Path
 from bug_vet import gate, ledger as ledger_mod, runner, shrinker, verify
 
 
+def test_unclassified_exit_code_counts_as_failure(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    probes = runs_dir / "exit7" / "probes"
+    probes.mkdir(parents=True)
+    (probes / "p_exit7.py").write_text(
+        'OBLIGATION = "ob-manual-1"\nimport sys\nsys.exit(7)\n',
+        encoding="utf-8",
+    )
+    res = runner.run_probes("exit7", runs_dir=runs_dir, python=sys.executable)
+    row = res["results"][0]
+    assert row["verdict"] == "ERROR(7)"
+    assert res["failures"] == 1
+
+
 def test_baseline_verify_red_to_green_and_test_evidence(tmp_path: Path) -> None:
     target = tmp_path / "repo"
     target.mkdir()

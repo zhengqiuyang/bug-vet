@@ -26,6 +26,14 @@ DISPOSITIONS = ("active", "probed-pass", "probed-fail", "falsified", "unknown", 
 DEFINITE_VERDICTS = {"PASS", "FAIL"}
 NON_DEFINITE_VERDICTS = {"INCONCLUSIVE", "ERROR", "CHECKER_BUG", "CHECKER BUG"}
 
+
+def is_non_definite_verdict(verdict: str | None) -> bool:
+    """Timed-out or crashed probes report as ``ERROR(<code>)`` and must stay non-definite."""
+    if not verdict:
+        return True
+    return verdict in NON_DEFINITE_VERDICTS or verdict.startswith("ERROR")
+
+
 FAIL_CLOSED = [
     "inconclusive",            # a probe without a definite verdict is never a pass
     "missing-self-check",      # a probe without self_check() cannot certify anything
@@ -585,7 +593,7 @@ def evaluate(ledger: dict, probe_dir: Path | None = None) -> dict:
             for record in records:
                 if record.get("kind") == "falsification":
                     continue
-                if record.get("verdict") in NON_DEFINITE_VERDICTS:
+                if is_non_definite_verdict(record.get("verdict")):
                     blockers.append(
                         {"kind": "inconclusive", "obligation": obligation["id"], "probe": record["probe"]}
                     )

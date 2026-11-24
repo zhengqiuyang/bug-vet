@@ -1,4 +1,4 @@
-# `bug-vet` 使用手册（v0.4.0）
+# `bug-vet` 使用手册（v0.4.1）
 
 > **无最小可执行红/绿复现，不出报告；无结构化证伪，不发结论。**
 
@@ -73,17 +73,17 @@ bug-vet setup --client all --apply --project-dir path\to\project --command-bin "
 支持的 `--client`：`claude`、 `cursor`、 `codex`、 `dsh`、 `antigravity`、 `all`。
 也可以直接由客户端拉起 `bug-vet mcp`（纯 stdio JSON-RPC 2.0，无需额外依赖包）。
 
-### 一键安装原生 Antigravity Plugin（v0.4.0 新增）
+### 一键安装原生 Antigravity Plugin（v0.4.0 新增，v0.4.1 随包分发）
 
-除了单独挂载 MCP，`bug-vet` 还内置了一整套原生 Antigravity Plugin（源码位于 [plugin/](file:///D:/projects/bug-vet/plugin)），一键安装即同时启用：
+除了单独挂载 MCP，`bug-vet` 还内置了一整套原生 Antigravity Plugin（源码位于 [src/bug_vet/plugin/](file:///D:/projects/bug-vet/src/bug_vet/plugin)，已随 wheel/sdist 一起打包），一键安装即同时启用：
 
 - **MCP 托管（`mcp_config.json`）**：自动注册 `bug-vet-mcp`（9 个 `bv_*` 工具）；
 - **3 个渐进加载 Skills（`skills/`）**：`bug-vet-hunt`、`bug-vet-verify`、`bug-vet-bench`；
 - **2 个物理隔离子 Agent（`agents/`）**：`bug-vet-hunter`（发现 + 写探针）与只读的 `bug-vet-falsifier`（唱反调 + 查文档/补偿链 + 假绿审计）；
 - **常驻准则（`rules/AGENTS.md`）**：全局约束“无 `self_check()` 失败复现不出报告”；
 - **2 道 `PreToolUse` 安全 Hooks（`hooks.json`）**：
-  1. `bug-vet-probe-vacuity-guard`：在 `write_file` 写入 `probes/*.py` 前拦截空洞探针、语法错误或缺少 `def self_check()` 的脚本；
-  2. `bug-vet-local-guard`：拦截 `git push` / `gh pr create` / `twine upload` / `uv publish`，强制弹窗确认（除非显式设置 `BUG_VET_ALLOW_REMOTE=1`）。
+  1. `bug-vet-probe-vacuity-guard`：在 `write_file` / `edit_file` 写入或改写 `probes/` 下的 Python 探针前，拦截空洞探针、语法错误或缺少 `def self_check()` 的脚本（append 追加与后续 edit 同样会被检查）；
+  2. `bug-vet-local-guard`：拦截 `git push`（含 `git -C <path> push`）、`gh pr/issue/release create`、`npm/pnpm/yarn/bun publish`、`cargo/poetry/uv publish`、`twine upload`、`dotnet nuget push` 与 `git send-email`，强制弹窗确认（除非显式设置 `BUG_VET_ALLOW_REMOTE=1`）。
 
 全局安装到本机 Antigravity 目录：
 

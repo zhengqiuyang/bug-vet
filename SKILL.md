@@ -31,7 +31,7 @@ Find and vet bugs where code **breaks its own contract**, and prove it with exec
 | `bv_gate` | Run fail-closed `gate` (`ready` / `partial` / `not-ready`), `collide`, or `issues` |
 | `bv_report` | Generate `REPORT.md`, `findings.json`, SARIF 2.1.0 `results.sarif`, and optional `PR.md` |
 
-## Antigravity Plugin Bundle (`plugin/`)
+## Antigravity Plugin Bundle (`src/bug_vet/plugin/`)
 
 `bug-vet setup --client antigravity --apply` installs the full plugin bundle (`3` skills: `bug-vet-hunt`, `bug-vet-verify`, `bug-vet-bench`; `2` subagents: `bug-vet-hunter`, read-only `bug-vet-falsifier`; `rules/AGENTS.md`; `bug-vet-mcp`; and `PreToolUse` vacuity/local-only guard hooks).
 

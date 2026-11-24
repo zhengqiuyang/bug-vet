@@ -11,7 +11,7 @@ from pathlib import Path
 
 from bug_vet import ledger as ledger_mod
 from bug_vet.paths import build_env, ensure_run, resolve_python, run_dir
-from bug_vet.runner import FAILING_VERDICTS, execute_probes
+from bug_vet.runner import execute_probes, is_failing_verdict
 
 
 def compare_verdicts(baseline: dict, results: list[dict]) -> dict:
@@ -24,7 +24,7 @@ def compare_verdicts(baseline: dict, results: list[dict]) -> dict:
         if old is None:
             new.append(name)
             continue
-        was_bad = old["verdict"] in FAILING_VERDICTS
+        was_bad = is_failing_verdict(old.get("verdict"))
         is_good = row["verdict"] == "PASS"
         if was_bad and is_good:
             fixed.append(name)
@@ -66,7 +66,7 @@ def snapshot_baseline(
         + "\n",
         encoding="utf-8",
     )
-    failing = [row["probe"] for row in results if row["verdict"] in FAILING_VERDICTS]
+    failing = [row["probe"] for row in results if is_failing_verdict(row["verdict"])]
     return {
         "run": run_name,
         "python": interpreter,

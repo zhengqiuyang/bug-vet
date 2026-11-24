@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bug-vet"
-version = "0.4.0"
+version = "0.4.1"
 description = "Vet silent contract bugs with executable red/green proof, structural oracles, adversarial falsification, and a zero-dep MCP dual surface."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -23,7 +23,18 @@ bugvet = "bug_vet.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-bug_vet = ["templates/*.tmpl", "playbooks/*.md", "playbooks/*.json"]
+bug_vet = [
+    "templates/*.tmpl",
+    "playbooks/*.md",
+    "playbooks/*.json",
+    "plugin/*.json",
+    "plugin/*.md",
+    "plugin/agents/*.md",
+    "plugin/rules/*.md",
+    "plugin/skills/*/SKILL.md",
+    "plugin/assets/*.svg",
+    "plugin/hooks/*.py",
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

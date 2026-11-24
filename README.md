@@ -2,7 +2,7 @@
 
 **Vet silent contract bugs with executable red/green proof.**
 
-Zero-dependency structural discovery oracles, adversarial falsification, fail-closed evidence ledger, SARIF 2.1.0 reporting, and a pure-stdlib MCP + Antigravity Plugin bundle (`v0.4.0`).
+Zero-dependency structural discovery oracles, adversarial falsification, fail-closed evidence ledger, SARIF 2.1.0 reporting, and a pure-stdlib MCP + Antigravity Plugin bundle (`v0.4.1`).
 
 > 📖 完整中文操作与接入指南见 [**docs/USER_GUIDE.md**](docs/USER_GUIDE.md)。
 
@@ -19,7 +19,7 @@ Zero-dependency structural discovery oracles, adversarial falsification, fail-cl
 - **Compiled Playbooks**: 5 structured bug-family playbooks (`bug-vet playbook --list` / `bv_playbook`).
 - **Evidence Ledger & Gate**: `doc < probe < test < published < runtime` authority ladder, mandatory `self_check()`, uncaught-traceback `ERROR` safeguard, CLI `ledger --promote` / `--add`, explicit `falsified` records, and fail-closed `ready / partial / not-ready` gating.
 - **Reporting & ContractBench**: `REPORT.md`, `findings.json`, SARIF 2.1.0 (`results.sarif`, suppressing settled ledger items), `PR.md`, and the 12-case `ContractBench` suite (`bug-vet bench`).
-- **Native Antigravity Plugin Bundle ([`plugin/`](plugin/))**: Packages `mcp_config.json` (`bug-vet-mcp`), 3 on-demand skills (`bug-vet-hunt`, `bug-vet-verify`, `bug-vet-bench`), isolated `bug-vet-hunter` & read-only `bug-vet-falsifier` subagents, `rules/AGENTS.md`, and 2 `PreToolUse` safety hooks (blocking vacuous probes under `probes/*.py` and gating remote push/PR commands). Install via `bug-vet setup --client antigravity --apply`.
+- **Native Antigravity Plugin Bundle ([`src/bug_vet/plugin/`](src/bug_vet/plugin/))**: Shipped inside the package (wheel/sdist include it), packaging `mcp_config.json` (`bug-vet-mcp`), 3 on-demand skills (`bug-vet-hunt`, `bug-vet-verify`, `bug-vet-bench`), isolated `bug-vet-hunter` & read-only `bug-vet-falsifier` subagents, `rules/AGENTS.md`, and 2 `PreToolUse` safety hooks (blocking vacuous probes written or edited under `probes/`, and gating remote push/PR/publish commands). Install via `bug-vet setup --client antigravity --apply`.
 
 ## ContractBench Snapshot (12 Real Merged OSS Bugs)
 

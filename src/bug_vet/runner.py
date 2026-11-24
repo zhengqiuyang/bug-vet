@@ -23,6 +23,13 @@ _TRACEBACK_RE = re.compile(
 )
 
 
+def is_failing_verdict(verdict: str | None) -> bool:
+    """Return True for FAIL, CHECKER_BUG, and every unclassified ``ERROR(<code>)`` verdict."""
+    if not verdict:
+        return True
+    return verdict in FAILING_VERDICTS or verdict.startswith("ERROR")
+
+
 def _classify_verdict(code: int, stderr: str) -> str:
     """Downgrade uncaught Python crash tracebacks on exit code 1 to ERROR instead of FAIL."""
     if code == 1 and _TRACEBACK_RE.search(stderr or ""):
@@ -138,7 +145,7 @@ def run_probes(
         encoding="utf-8",
     )
     ledger = ledger_mod.record_probe_run(path, results, interpreter, exec_cwd, root=exec_cwd)
-    failures = sum(1 for row in results if row["verdict"] in FAILING_VERDICTS)
+    failures = sum(1 for row in results if is_failing_verdict(row["verdict"]))
     return {
         "run": run_name,
         "python": interpreter,
