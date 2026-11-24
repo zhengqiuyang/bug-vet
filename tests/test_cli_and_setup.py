@@ -2,21 +2,26 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
+import sysconfig
 from pathlib import Path
 
 from bug_vet import collide
 
 
 def _bin_path(name: str) -> str:
-    scripts_dir = Path(sys.executable).parent
-    exe = scripts_dir / f"{name}.exe"
-    if exe.exists():
-        return str(exe)
-    plain = scripts_dir / name
-    if plain.exists():
-        return str(plain)
+    # sys.executable lives in Scripts/ inside a venv but in the install root on
+    # a stock Windows CI runner; sysconfig knows where console scripts land.
+    scripts_dir = Path(sysconfig.get_path("scripts") or Path(sys.executable).parent)
+    candidates = [scripts_dir / f"{name}.exe", scripts_dir / name]
+    for exe in candidates:
+        if exe.exists():
+            return str(exe)
+    found = shutil.which(name)
+    if found:
+        return found
     raise FileNotFoundError(f"CLI binary {name!r} not found under {scripts_dir}")
 
 

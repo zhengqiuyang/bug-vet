@@ -7,6 +7,21 @@ from pathlib import Path
 from bug_vet import bench, gate, ledger as ledger_mod, report, runner
 
 
+def test_extract_all_falls_back_on_python_without_tar_filter(tmp_path: Path) -> None:
+    class FakeArchive:
+        def __init__(self) -> None:
+            self.calls: list[object] = []
+
+        def extractall(self, path: object, filter: str | None = None) -> None:
+            if filter is not None:
+                raise TypeError("extractall() got an unexpected keyword argument 'filter'")
+            self.calls.append(path)
+
+    archive = FakeArchive()
+    bench._extract_all(archive, tmp_path)  # type: ignore[arg-type]
+    assert archive.calls == [tmp_path]
+
+
 def test_report_generates_markdown_json_sarif_and_pr(tmp_path: Path) -> None:
     runs_dir = tmp_path / "runs"
     run = runs_dir / "rep-run"

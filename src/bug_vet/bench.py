@@ -42,6 +42,18 @@ def _git(repo: Path, *args: str) -> str:
     return proc.stdout.strip()
 
 
+def _extract_all(archive: tarfile.TarFile, dest: Path) -> None:
+    """Extract a trusted ``git archive`` tarball.
+
+    ``filter=`` only exists on Python 3.11.4+/3.12+; the project still supports
+    3.10, where passing it raises ``TypeError``.
+    """
+    try:
+        archive.extractall(dest, filter="data")
+    except TypeError:
+        archive.extractall(dest)
+
+
 def materialize_ref(
     repo: str | Path,
     ref: str,
@@ -71,7 +83,7 @@ def materialize_ref(
         raise RuntimeError(f"git archive {resolved_sha} failed: {err}")
 
     with tarfile.open(fileobj=io.BytesIO(proc.stdout), mode="r|") as archive:
-        archive.extractall(dest, filter="data")
+        _extract_all(archive, dest)
     marker.write_text(resolved_sha + "\n", encoding="utf-8")
     return dest
 
