@@ -1,49 +1,119 @@
 # bug-vet
 
-**Vet silent contract bugs with executable red/green proof.**
+**Prove a bug before you report it.**
 
-Zero-dependency structural discovery oracles, adversarial falsification, fail-closed evidence ledger, SARIF 2.1.0 reporting, and a pure-stdlib MCP + Antigravity Plugin bundle (`v0.4.1`).
+`bug-vet` hunts the bugs ordinary linters miss: a sibling provider quietly drops a kwarg, a parser eats a trailing backtick, a `Sequence` parameter is narrowed to `list`, a generator is drained twice. A promising candidate has to become a self-checked executable probe, survive a falsifier, and clear red/green evidence before it counts as a finding.
 
-> 📖 完整中文操作与接入指南见 [**docs/USER_GUIDE.md**](docs/USER_GUIDE.md)。
+[![CI](https://github.com/zhengqiuyang/bug-vet/actions/workflows/ci.yml/badge.svg)](https://github.com/zhengqiuyang/bug-vet/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-3776ab?style=flat-square)](https://www.python.org/)
+[![Version](https://img.shields.io/badge/version-0.4.1-informational?style=flat-square)](CHANGELOG.md)
 
-## Features
+[Quickstart](#quickstart) · [Why it exists](#why-it-exists) · [How it works](#how-it-works) · [Proof](#proof) · [Interfaces](#interfaces) · [中文指南](docs/USER_GUIDE.md)
 
-- **Structural Discovery Oracles**:
-  - `siblings`: ABC subclass kwarg omission, `<entity>_to_<provider>` missing-guard asymmetry, `*_API_BASE` vs `*_API_KEY` dispatch asymmetry, and TS/JS sibling command validator omissions.
-  - `parser_meta`: naive code-fence stripping / hardcoded triple-backtick regexes, incomplete SSE/line-ending terminator sets, unescaped Markdown markers in parse+serialize modules, and unsafe `.get(k, {}).items()` deserializers.
-  - `contracts`: `Sequence`/`Mapping` narrowed to `list`/`dict`, idempotent `register*` self-eviction, and unprotected `coordinator.data[key]` subscripts.
-  - `roundtrip` & `claims`: self-checked inverse-pair round-trip probes, 12-family contract mining, fenced doc example runner, and Python/TS callsites.
-- **Adversarial Falsifier**:
-  - Upstream call-graph compensation checker (`bug-vet falsify --check-compensation`).
-  - Python AST vacuous-test/probe auditor catching `no-assertions`, `tautology-assert`, `swallowed-assertion`, `loose-caplog-text`, `target-mocked`, and `empty-self-check` (with support for `extend`/`+=`/helper delegation).
-- **Compiled Playbooks**: 5 structured bug-family playbooks (`bug-vet playbook --list` / `bv_playbook`).
-- **Evidence Ledger & Gate**: `doc < probe < test < published < runtime` authority ladder, mandatory `self_check()`, uncaught-traceback `ERROR` safeguard, CLI `ledger --promote` / `--add`, explicit `falsified` records, and fail-closed `ready / partial / not-ready` gating.
-- **Reporting & ContractBench**: `REPORT.md`, `findings.json`, SARIF 2.1.0 (`results.sarif`, suppressing settled ledger items), `PR.md`, and the 12-case `ContractBench` suite (`bug-vet bench`).
-- **Native Antigravity Plugin Bundle ([`src/bug_vet/plugin/`](src/bug_vet/plugin/))**: Shipped inside the package (wheel/sdist include it), packaging `mcp_config.json` (`bug-vet-mcp`), 3 on-demand skills (`bug-vet-hunt`, `bug-vet-verify`, `bug-vet-bench`), isolated `bug-vet-hunter` & read-only `bug-vet-falsifier` subagents, `rules/AGENTS.md`, and 2 `PreToolUse` safety hooks (blocking vacuous probes written or edited under `probes/`, and gating remote push/PR/publish commands). Install via `bug-vet setup --client antigravity --apply`.
-
-## ContractBench Snapshot (12 Real Merged OSS Bugs)
-
-- **Pre-fix Recall@5**: **10 / 12 (83.3%)** across `instructor`, `litellm`, `pr-agent`, `headroom`, `DeepTutor`, `haystack`, `mujoco`, `home-assistant/core`, and `testsprite-cli` (**7 / 12 at Rank #1**, all 12 within Top-8).
-- **Post-fix negative control**: **11 / 11** structural detections clear on the fix commit. See [BENCHMARK.md](bench/reports/BENCHMARK.md).
+Zero runtime dependencies, Python 3.10+, stdlib-only MCP server. Everything runs locally: no account, no telemetry, no code leaves your machine.
 
 ## Quickstart
 
 ```bash
-pip install -e ".[dev]"
-pytest -v
+pip install "git+https://github.com/zhengqiuyang/bug-vet.git"
 
-bug-vet scan --mode all path/to/repo --name myrun
-bug-vet playbook --list
-bug-vet ledger myrun --promote 1
-bug-vet mcp
-bug-vet setup --client antigravity --apply --plugin-dir ~/.gemini/config/plugins/bug-vet
-bug-vet setup --client all
+# Read-only scan. Artifacts land in the runs dir, never inside the target repo.
+bug-vet scan --mode all /path/to/repo --name demo --runs-dir ~/.bug-vet-runs
+bug-vet status demo --runs-dir ~/.bug-vet-runs
 ```
 
-## Run Storage
+Working on `bug-vet` itself: `pip install -e ".[dev]"` then `pytest -q` (40 tests).
 
-Artifacts are stored under `.bug-vet/runs/<run>/` in the current working directory (override with `--runs-dir` or `BUG_VET_RUNS_DIR`).
+## Why it exists
 
-## License
+Static rules find patterns; LLM review finds plausible stories; coverage finds executed lines. None of them prove that *this* input breaks *this* contract. `bug-vet` starts from a contract (docstring, type, sibling symmetry, round-trip pair), then demands a minimal reproduction that fails for the right reason.
 
-MIT — see [LICENSE](LICENSE).
+| Approach | Typical output | Reproducible? | Rejects weak findings? |
+|---|---|---|---|
+| Rule-based linters | pattern matches | no | n/a |
+| LLM code review | plausible explanations | no | inconsistently |
+| Coverage | lines executed | no | n/a |
+| **bug-vet** | contract violation + probe | **yes, exit 0/1** | **falsifier + fail-closed gate** |
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[scan] --> B[candidates]
+    B --> C[probe + self_check]
+    C --> D[falsify]
+    D --> E[ledger]
+    E --> F[gate / report]
+```
+
+Discovery is read-only and produces leads, never findings. The discipline is **Hunter != Verifier**: a separate falsifier checks upstream compensation, surrounding tests, and probe vacuity. Evidence is ranked `doc < probe < test < published < runtime`; anything missing a `self_check()`, run in a different environment, or failing with an uncaught traceback stays `unknown` and blocks readiness.
+
+## Proof
+
+> [!TIP]
+> ContractBench replays 12 real bugs that were merged upstream. Pre-fix recall@5 is **10/12 (83.3%)**, with **7/12 at rank #1**; the post-fix negative control clears **11/11**; zero environment false positives. Full table in [BENCHMARK.md](bench/reports/BENCHMARK.md), rerun with `bug-vet bench --cases bench/cases.json`.
+
+The suite covers `instructor`, `litellm`, `pr-agent`, `headroom`, `DeepTutor`, `haystack`, `mujoco`, `home-assistant/core`, and `testsprite-cli`.
+
+## What it finds
+
+| Scan | Catches |
+|---|---|
+| `siblings` | ABC subclass kwarg omission, `<entity>_to_<provider>` guard asymmetry, `*_API_BASE` vs `*_API_KEY` dispatch gaps, TS/JS validator omissions |
+| `parser_meta` | naive fence stripping, incomplete SSE/line-ending terminators, unescaped Markdown round-trips, unsafe `.get(k, {}).items()` |
+| `contracts` | `Sequence`/`Mapping` narrowed to `list`/`dict`, idempotent `register*` self-eviction, unguarded `coordinator.data[key]` |
+| `claims` / `roundtrip` | docstring and doc-example contracts, inverse-pair round-trips, unwired callsites, doc drift |
+
+Five compiled playbooks (`bug-vet playbook --list`) describe each family's probe recipe and the falsification traps to check first.
+
+## Interfaces
+
+<details>
+<summary><b>CLI workflow</b></summary>
+
+| Command | Purpose |
+|---|---|
+| `bug-vet scan --mode all <repo> --name <run>` | run every discovery oracle |
+| `bug-vet ledger <run> --promote 1` | promote a ranked candidate into the ledger |
+| `bug-vet new-probe <run> --claim <id>` | scaffold a probe that must define `self_check()` |
+| `bug-vet probe <run> --cwd <repo>` | execute probes, record evidence, settle obligations |
+| `bug-vet falsify --check-vacuity <probe>` | audit a probe for fake-green patterns |
+| `bug-vet baseline <run>` / `bug-vet verify <run>` | snapshot pre-fix, compare post-fix (red → green) |
+| `bug-vet gate <run> --require-verification` | fail-closed readiness verdict |
+| `bug-vet report <run> --formats markdown,json,sarif` | REPORT.md, findings.json, SARIF 2.1.0, PR.md |
+
+</details>
+
+<details>
+<summary><b>MCP server (9 tools)</b></summary>
+
+`bug-vet mcp` speaks JSON-RPC over stdio with no dependencies. Tools: `bv_scan`, `bv_playbook`, `bv_probe`, `bv_falsify`, `bv_shrink`, `bv_verify`, `bv_ledger`, `bv_gate`, `bv_report`.
+
+```json
+{ "mcpServers": { "bug-vet": { "command": "bug-vet", "args": ["mcp"] } } }
+```
+
+</details>
+
+## Antigravity plugin
+
+The package ships a native Antigravity plugin bundle in [`src/bug_vet/plugin/`](src/bug_vet/plugin/): three on-demand skills (`bug-vet-hunt`, `bug-vet-verify`, `bug-vet-bench`), a `bug-vet-hunter` writer plus a read-only `bug-vet-falsifier`, always-on rules, and two `PreToolUse` hooks that reject vacuous probes under `probes/` and force confirmation before `git push`, PR creation, or package publishing.
+
+```bash
+bug-vet setup --client antigravity --apply --plugin-dir ~/.gemini/config/plugins/bug-vet
+```
+
+## Limits
+
+> [!WARNING]
+> `bug-vet` produces evidence, not fixes. Each candidate still needs a human- or agent-written probe, and static heuristics miss dynamic contracts, runtime configuration, and cross-language call graphs. The hooks only guard file writes: a probe created by a shell heredoc bypasses them.
+
+## Docs
+
+- [User guide (中文)](docs/USER_GUIDE.md): full CLI/MCP walkthrough and plugin setup.
+- [Benchmark](bench/reports/BENCHMARK.md): per-case recall and post-fix control.
+- [Changelog](CHANGELOG.md): what changed in each release.
+- [License](LICENSE): MIT.
+
+Issues and PRs are welcome. If you point `bug-vet` at a repository, please keep the run artifacts outside it (`--runs-dir`) so the target tree stays clean.
