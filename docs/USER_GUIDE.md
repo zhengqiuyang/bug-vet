@@ -1,4 +1,4 @@
-# `bug-vet` 使用手册（v0.3.1）
+# `bug-vet` 使用手册（v0.4.0）
 
 > **无最小可执行红/绿复现，不出报告；无结构化证伪，不发结论。**
 
@@ -67,11 +67,35 @@ bug-vet playbook --list
 bug-vet setup --client all
 
 # 2. 确认后应用配置（自动备份原有配置文件为 .bak）
-bug-vet setup --client all --apply --command-bin "D:\projects\bug-vet\.venv\Scripts\bug-vet.exe"
+bug-vet setup --client all --apply --project-dir path\to\project --command-bin "D:\projects\bug-vet\.venv\Scripts\bug-vet.exe"
 ```
 
-支持的 `--client`：`claude`、 `cursor`、 `codex`、 `dsh`、 `all`。
+支持的 `--client`：`claude`、 `cursor`、 `codex`、 `dsh`、 `antigravity`、 `all`。
 也可以直接由客户端拉起 `bug-vet mcp`（纯 stdio JSON-RPC 2.0，无需额外依赖包）。
+
+### 一键安装原生 Antigravity Plugin（v0.4.0 新增）
+
+除了单独挂载 MCP，`bug-vet` 还内置了一整套原生 Antigravity Plugin（源码位于 [plugin/](file:///D:/projects/bug-vet/plugin)），一键安装即同时启用：
+
+- **MCP 托管（`mcp_config.json`）**：自动注册 `bug-vet-mcp`（9 个 `bv_*` 工具）；
+- **3 个渐进加载 Skills（`skills/`）**：`bug-vet-hunt`、`bug-vet-verify`、`bug-vet-bench`；
+- **2 个物理隔离子 Agent（`agents/`）**：`bug-vet-hunter`（发现 + 写探针）与只读的 `bug-vet-falsifier`（唱反调 + 查文档/补偿链 + 假绿审计）；
+- **常驻准则（`rules/AGENTS.md`）**：全局约束“无 `self_check()` 失败复现不出报告”；
+- **2 道 `PreToolUse` 安全 Hooks（`hooks.json`）**：
+  1. `bug-vet-probe-vacuity-guard`：在 `write_file` 写入 `probes/*.py` 前拦截空洞探针、语法错误或缺少 `def self_check()` 的脚本；
+  2. `bug-vet-local-guard`：拦截 `git push` / `gh pr create` / `twine upload` / `uv publish`，强制弹窗确认（除非显式设置 `BUG_VET_ALLOW_REMOTE=1`）。
+
+全局安装到本机 Antigravity 目录：
+
+```powershell
+D:\projects\bug-vet\.venv\Scripts\bug-vet.exe setup `
+  --client antigravity --apply `
+  --plugin-dir "$env:USERPROFILE\.gemini\config\plugins\bug-vet" `
+  --command-bin "D:\projects\bug-vet\.venv\Scripts\bug-vet.exe" `
+  --python-bin "D:\projects\bug-vet\.venv\Scripts\python.exe"
+```
+
+安装完成后无需重启，下一轮对话会自动加载，也可以在 Antigravity Customizations 页面随时启停。
 
 ### 9 个内置 MCP 工具一览
 
@@ -228,7 +252,7 @@ bug-vet report myrun --runs-dir D:\projects\_bench\runs --formats markdown,json,
 | `bug-vet collide <owner/repo>` | `--issue N`、`--keyword`、`--file`、`--require-clear` | 检查 Issue 时间线与开放 PR 是否撞车（调用本地 `gh` CLI） |
 | `bug-vet report <name>` | `--formats markdown,json,sarif`、`--pr`、`--include-candidates` | 生成报告与 SARIF 文件 |
 | `bug-vet bench` | `--cases`、`--case`、`--json-out`、`--markdown-out` | 运行 ContractBench 回归评测 |
-| `bug-vet setup` | `--client {all,claude,cursor,codex,dsh}`、`--apply` | 生成或写入主流 Coding Agent MCP 配置 |
+| `bug-vet setup` | `--client {all,claude,cursor,codex,dsh,antigravity}`、`--apply`、`--project-dir`、`--plugin-dir`、`--python-bin` | 生成 MCP 配置或安装原生 Antigravity Plugin |
 | `bug-vet mcp` | 无 | 启动零依赖 stdio MCP Server |
 | `bug-vet status <name>` | `--runs-dir` | 查看某个 run 目录下已产出的所有工件 |
 

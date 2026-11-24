@@ -582,7 +582,9 @@ def cmd_setup(args: argparse.Namespace) -> int:
         client=args.client,
         apply=args.apply,
         project_dir=args.project_dir,
+        plugin_dir=args.plugin_dir,
         command=args.command_bin,
+        python_bin=args.python_bin,
     )
     if args.json:
         print(json.dumps(res, indent=2, ensure_ascii=False))
@@ -596,10 +598,13 @@ def cmd_setup(args: argparse.Namespace) -> int:
     if res["applied"]:
         print("\nApplied:")
         for item in res["applied"]:
-            bak = f" (backup: {item['backup']})" if item["backup"] else ""
+            bak = f" (backup: {item['backup']})" if item.get("backup") else ""
             print(f"  wrote {item['file']}{bak}")
     elif not args.apply:
-        print("\nPreview only (no files modified). Pass --apply --project-dir <path> to write project configs.")
+        print(
+            "\nPreview only (no files modified). Pass --apply --project-dir <path> "
+            "(or --plugin-dir <path> for antigravity) to write configs."
+        )
     return 0
 
 
@@ -808,11 +813,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_status.add_argument("name")
     p_status.set_defaults(func=cmd_status)
 
-    p_setup = sub.add_parser("setup", help="preview or apply MCP config for coding agents")
+    p_setup = sub.add_parser("setup", help="preview or apply MCP/plugin config for coding agents")
     p_setup.add_argument("--client", choices=["all", *setup_agents.SUPPORTED_CLIENTS], default="all")
     p_setup.add_argument("--apply", action="store_true")
     p_setup.add_argument("--project-dir")
+    p_setup.add_argument("--plugin-dir", help="target directory for installing the Antigravity plugin bundle")
     p_setup.add_argument("--command-bin", default="bug-vet")
+    p_setup.add_argument("--python-bin", help="Python interpreter path baked into Antigravity hooks.json")
     p_setup.add_argument("--json", action="store_true")
     p_setup.set_defaults(func=cmd_setup)
 

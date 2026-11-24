@@ -341,16 +341,13 @@ def _helper_call_records_failures(
     return False
 
 
-def audit_test_vacuity(
-    test_file: str | Path,
+def audit_source_vacuity(
+    source: str,
     *,
+    filename: str = "<memory>",
     target_symbol: str | None = None,
 ) -> dict[str, Any]:
-    """Audit a Python test or probe script for vacuous / fake-green patterns."""
-    path = Path(test_file).resolve()
-    if not path.exists():
-        raise FileNotFoundError(f"test/probe file does not exist: {path}")
-    source = path.read_text(encoding="utf-8", errors="replace")
+    """Audit Python test or probe source text for vacuous / fake-green patterns."""
     tree = ast.parse(source)
     module_funcs = {
         stmt.name: stmt
@@ -468,9 +465,22 @@ def audit_test_vacuity(
                     )
 
     return {
-        "file": str(path),
+        "file": filename,
         "target_symbol": target_symbol,
         "functions_checked": functions_checked,
         "vacuous": bool(findings),
         "findings": findings,
     }
+
+
+def audit_test_vacuity(
+    test_file: str | Path,
+    *,
+    target_symbol: str | None = None,
+) -> dict[str, Any]:
+    """Audit a Python test or probe script on disk for vacuous / fake-green patterns."""
+    path = Path(test_file).resolve()
+    if not path.exists():
+        raise FileNotFoundError(f"test/probe file does not exist: {path}")
+    source = path.read_text(encoding="utf-8", errors="replace")
+    return audit_source_vacuity(source, filename=str(path), target_symbol=target_symbol)

@@ -50,7 +50,7 @@ def test_setup_preview_and_safe_project_apply(tmp_path: Path) -> None:
     assert preview.returncode == 0
     data = json.loads(preview.stdout)
     assert data["apply"] is False
-    assert set(data["configs"]) == {"claude", "cursor", "codex", "dsh"}
+    assert set(data["configs"]) == {"claude", "cursor", "codex", "dsh", "antigravity"}
     assert not (tmp_path / ".mcp.json").exists()
 
     # Apply merges safely and preserves existing mcpServers
@@ -72,6 +72,140 @@ def test_setup_preview_and_safe_project_apply(tmp_path: Path) -> None:
     assert merged["mcpServers"]["bug-vet"]["args"] == ["mcp"]
     cursor_cfg = json.loads((tmp_path / ".cursor" / "mcp.json").read_text(encoding="utf-8"))
     assert cursor_cfg["mcpServers"]["bug-vet"]["command"] == "bug-vet"
+    assert (tmp_path / ".agents" / "plugins" / "bug-vet" / "plugin.json").is_file()
+
+
+def _run_hook(hook_cmd: str, cwd: Path, payload: dict, *, extra_env: dict[str, str] | None = None) -> dict:
+    shell_cmd = ["cmd", "/c", hook_cmd] if os.name == "nt" else ["sh", "-c", hook_cmd]
+    env = os.environ.copy()
+    if extra_env:
+        env.update(extra_env)
+    proc = subprocess.run(
+        shell_cmd,
+        cwd=str(cwd),
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        env=env,
+        timeout=15,
+    )
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout.strip())
+
+
+def test_setup_antigravity_plugin_bundle_and_hooks(tmp_path: Path) -> None:
+    plugin_dest = tmp_path / "plugins" / "bug-vet"
+    proc = subprocess.run(
+        [
+            _bin_path("bug-vet"),
+            "setup",
+            "--client",
+            "antigravity",
+            "--apply",
+            "--plugin-dir",
+            str(plugin_dest),
+            "--command-bin",
+            _bin_path("bug-vet"),
+            "--python-bin",
+            sys.executable,
+            "--json",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=15,
+    )
+    assert proc.returncode == 0, proc.stderr
+    res = json.loads(proc.stdout)
+    assert res["apply"] is True
+    assert Path(res["applied"][0]["file"]) == plugin_dest.resolve()
+
+    manifest = json.loads((plugin_dest / "plugin.json").read_text(encoding="utf-8"))
+    allowed_keys = {
+        "name",
+        "displayName",
+        "version",
+        "description",
+        "logo",
+        "author",
+        "homepage",
+        "repository",
+        "suggestedPrompts",
+        "disabled",
+    }
+    assert manifest["name"] == "bug-vet"
+    assert set(manifest).issubset(allowed_keys)
+    assert len(manifest["suggestedPrompts"]) == 3
+    assert (plugin_dest / manifest["logo"]).is_file()
+
+    mcp_cfg = json.loads((plugin_dest / "mcp_config.json").read_text(encoding="utf-8"))
+    assert "bug-vet-mcp" in mcp_cfg["mcpServers"]
+    assert mcp_cfg["mcpServers"]["bug-vet-mcp"]["args"] == ["mcp"]
+
+    for skill in ("bug-vet-hunt", "bug-vet-verify", "bug-vet-bench"):
+        md = (plugin_dest / "skills" / skill / "SKILL.md").read_text(encoding="utf-8")
+        assert f"name: {skill}" in md
+
+    for agent_name in ("bug-vet-hunter", "bug-vet-falsifier"):
+        md = (plugin_dest / "agents" / f"{agent_name}.md").read_text(encoding="utf-8")
+        assert "subagent: true" in md
+        assert "mainAgent: false" in md
+        assert "tools:" in md
+
+    rules_md = (plugin_dest / "rules" / "AGENTS.md").read_text(encoding="utf-8")
+    assert not rules_md.startswith("---")
+
+    hooks_cfg = json.loads((plugin_dest / "hooks.json").read_text(encoding="utf-8"))
+    local_cmd = hooks_cfg["bug-vet-local-guard"]["PreToolUse"][0]["hooks"][0]["command"]
+    vac_cmd = hooks_cfg["bug-vet-probe-vacuity-guard"]["PreToolUse"][0]["hooks"][0]["command"]
+
+    assert _run_hook(
+        local_cmd, plugin_dest, {"toolCall": {"name": "run_command", "args": {"CommandLine": "git push origin main"}}}
+    )["decision"] == "force_ask"
+    assert _run_hook(
+        local_cmd, plugin_dest, {"toolCall": {"name": "run_command", "args": {"CommandLine": "gh pr create --fill"}}}
+    )["decision"] == "force_ask"
+    assert _run_hook(
+        local_cmd, plugin_dest, {"toolCall": {"name": "run_command", "args": {"CommandLine": "pytest -v"}}}
+    )["decision"] == "allow"
+    assert _run_hook(
+        local_cmd,
+        plugin_dest,
+        {"toolCall": {"name": "run_command", "args": {"CommandLine": "git push origin main"}}},
+        extra_env={"BUG_VET_ALLOW_REMOTE": "1"},
+    )["decision"] == "allow"
+
+    assert _run_hook(
+        vac_cmd,
+        plugin_dest,
+        {"toolCall": {"name": "write_file", "args": {"Path": "/tmp/run/probes/p1.py", "Content": "def check(failures):\n    pass\n"}}},
+    )["decision"] == "deny"
+    assert _run_hook(
+        vac_cmd,
+        plugin_dest,
+        {"toolCall": {"name": "write_file", "args": {"Path": "/tmp/run/probes/p2.py", "Content": "def self_check():\n    return []\n\ndef check(failures):\n    pass\n"}}},
+    )["decision"] == "deny"
+    assert _run_hook(
+        vac_cmd,
+        plugin_dest,
+        {
+            "toolCall": {
+                "name": "write_file",
+                "args": {
+                    "Path": "/tmp/run/probes/p3.py",
+                    "Content": "def self_check():\n    if 1 != 1:\n        return ['x']\n    return []\n\ndef check(failures):\n    failures.append('bad')\n",
+                },
+            }
+        },
+    )["decision"] == "allow"
+    assert _run_hook(
+        vac_cmd,
+        plugin_dest,
+        {"toolCall": {"name": "write_file", "args": {"Path": "/tmp/other/helper.py", "Content": "x = 1\n"}}},
+    )["decision"] == "allow"
 
 
 def test_cli_end_to_end_with_runs_dir_before_and_after_subcommand(tmp_path: Path) -> None:

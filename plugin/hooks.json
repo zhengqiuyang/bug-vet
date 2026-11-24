@@ -1,0 +1,30 @@
+{
+  "bug-vet-local-guard": {
+    "PreToolUse": [
+      {
+        "matcher": "run_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python hooks/guard_local_only.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "bug-vet-probe-vacuity-guard": {
+    "PreToolUse": [
+      {
+        "matcher": "write_file",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python hooks/guard_probe_vacuity.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

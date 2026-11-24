@@ -1,0 +1,19 @@
+{
+  "name": "bug-vet",
+  "displayName": "bug-vet",
+  "version": "0.4.0",
+  "description": "Contract-bug hunter harness with structural oracles, Hunter/Falsifier subagents, vacuity & local-only hooks, and a zero-dependency MCP server.",
+  "logo": "assets/logo.svg",
+  "author": {
+    "name": "zhengqiuyang"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/zhengqiuyang/bug-vet"
+  },
+  "suggestedPrompts": [
+    "Scan this repository read-only with bug-vet and triage the top structural candidates",
+    "Write a self-checked repro probe for candidate #1 and verify it with the falsifier",
+    "Run ContractBench and summarize pre-fix recall and post-fix clearance"
+  ]
+}

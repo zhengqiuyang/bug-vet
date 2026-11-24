@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" fill="none">
+  <!-- ~10% empty margin inside 128x128 square canvas; high-contrast shield + bug checkmark -->
+  <path
+    d="M64 14L22 30V63C22 89.5 40 107.8 64 114C88 107.8 106 89.5 106 63V30L64 14Z"
+    fill="#1D4ED8"
+    stroke="#93C5FD"
+    stroke-width="4"
+    stroke-linejoin="round"
+  />
+  <!-- Stylized beetle shell / contract node -->
+  <ellipse cx="64" cy="66" rx="18" ry="22" fill="#0F172A" stroke="#E0F2FE" stroke-width="3" />
+  <line x1="64" y1="45" x2="64" y2="87" stroke="#38BDF8" stroke-width="2.5" stroke-linecap="round" />
+  <!-- Antennae -->
+  <path d="M55 47C51 40 46 37 42 36" stroke="#E0F2FE" stroke-width="3" stroke-linecap="round" />
+  <path d="M73 47C77 40 82 37 86 36" stroke="#E0F2FE" stroke-width="3" stroke-linecap="round" />
+  <!-- Legs -->
+  <path d="M46 58H36M45 68H35M47 78H38" stroke="#E0F2FE" stroke-width="3" stroke-linecap="round" />
+  <path d="M82 58H92M83 68H93M81 78H90" stroke="#E0F2FE" stroke-width="3" stroke-linecap="round" />
+  <!-- Verification checkmark overlay -->
+  <path
+    d="M47 67L59 79L85 51"
+    stroke="#34D399"
+    stroke-width="6.5"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>
