@@ -142,6 +142,70 @@ def test_cli_end_to_end_with_runs_dir_before_and_after_subcommand(tmp_path: Path
     assert "READY" in r4.stdout
 
 
+def test_cli_ledger_promote_and_manual_add(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    cli = _bin_path("bug-vet")
+
+    repo = tmp_path / "app"
+    repo.mkdir()
+    (repo / "seq.py").write_text(
+        "from collections.abc import Sequence\n"
+        "def take(items: Sequence[str]):\n"
+        "    if isinstance(items, list):\n"
+        "        return list(items)\n"
+        "    raise TypeError('list only')\n",
+        encoding="utf-8",
+    )
+
+    scan = subprocess.run(
+        [cli, "scan", str(repo), "--name", "prom", "--mode", "all", "--runs-dir", str(runs_dir)],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=15,
+    )
+    assert scan.returncode == 0
+
+    prom = subprocess.run(
+        [cli, "ledger", "prom", "--runs-dir", str(runs_dir), "--promote", "1"],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=15,
+    )
+    assert prom.returncode == 0
+    assert "promoted ob-cand-1-" in prom.stdout
+
+    added = subprocess.run(
+        [
+            cli,
+            "ledger",
+            "prom",
+            "--runs-dir",
+            str(runs_dir),
+            "--add",
+            "manual boundary promise",
+            "--id",
+            "man-1",
+            "--source",
+            str(repo / "seq.py"),
+            "--line",
+            "2",
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        timeout=15,
+    )
+    assert added.returncode == 0
+    assert "added ob-man-1" in added.stdout
+    state = json.loads((runs_dir / "prom" / "ledger.json").read_text(encoding="utf-8"))
+    assert len(state["obligations"]) == 2
+
+
 def test_collide_handles_missing_gh_gracefully(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.setenv("PATH", str(tmp_path))
     try:

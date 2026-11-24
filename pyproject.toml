@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bug-vet"
-version = "0.3.0"
+version = "0.3.1"
 description = "Vet silent contract bugs with executable red/green proof, structural oracles, adversarial falsification, and a zero-dep MCP dual surface."
 readme = "README.md"
 requires-python = ">=3.10"

@@ -34,11 +34,58 @@ def _sarif_location(source: str, line: int | None) -> dict[str, Any]:
     return {"physicalLocation": physical}
 
 
+def _paths_match(ob_path: str, cand_file: str) -> bool:
+    op = ob_path.replace("\\", "/").lstrip("/")
+    cf = cand_file.replace("\\", "/").lstrip("/")
+    if not op or not cf:
+        return False
+    return op == cf or op.endswith("/" + cf) or cf.endswith("/" + op)
+
+
+def _settled_locations(ledger: dict[str, Any]) -> list[tuple[str, int | None, str | None]]:
+    settled: list[tuple[str, int | None, str | None]] = []
+    for ob in ledger.get("obligations", []):
+        if ob.get("disposition") not in {"probed-pass", "probed-fail", "falsified"}:
+            continue
+        sym = ob.get("symbol")
+        src = str(ob.get("source") or "")
+        if src:
+            settled.append((src, ob.get("line"), sym))
+        fal = ob.get("falsification") or {}
+        fal_loc = fal.get("source_location")
+        if isinstance(fal_loc, str) and fal_loc:
+            if ":" in fal_loc and fal_loc.rsplit(":", 1)[1].isdigit():
+                f_path, f_line = fal_loc.rsplit(":", 1)
+                settled.append((f_path, int(f_line), sym))
+            else:
+                settled.append((fal_loc, None, sym))
+    return settled
+
+
+def _candidate_is_settled(
+    cand: dict[str, Any],
+    settled: list[tuple[str, int | None, str | None]],
+) -> bool:
+    cand_file = str(cand.get("file") or "")
+    cand_line = cand.get("line")
+    cand_sym = cand.get("symbol")
+    for ob_path, ob_line, ob_sym in settled:
+        if not _paths_match(ob_path, cand_file):
+            continue
+        if ob_line is not None and cand_line is not None and ob_line != cand_line:
+            continue
+        if ob_sym and cand_sym and ob_sym != cand_sym:
+            continue
+        return True
+    return False
+
+
 def build_sarif(
     findings: list[dict[str, Any]],
     candidates: list[dict[str, Any]] | None = None,
     *,
     include_candidates: bool = False,
+    settled_obligations: list[tuple[str, int | None, str | None]] | None = None,
 ) -> dict[str, Any]:
     """Build a SARIF 2.1.0 document from confirmed findings (and optional candidates)."""
     rules_by_id: dict[str, dict[str, Any]] = {}
@@ -72,6 +119,8 @@ def build_sarif(
     if include_candidates and candidates:
         for cand in candidates:
             if cand.get("oracle") == "claims":
+                continue
+            if settled_obligations and _candidate_is_settled(cand, settled_obligations):
                 continue
             rid = _rule_id(cand.get("family", "structural"))
             add_rule(rid, f"Structural anomaly candidate ({cand.get('family', 'structural')})")
@@ -241,10 +290,11 @@ def generate_report(
     if not path.exists():
         raise FileNotFoundError(f"run directory does not exist: {path}")
 
+    ledger = ledger_mod.load(path)
     gate_data = _load_optional_json(path / "gate.json")
     if gate_data is None:
-        ledger = ledger_mod.load(path)
         gate_data = ledger_mod.evaluate(ledger, probe_dir=path / "probes")
+    settled = _settled_locations(ledger)
 
     verification = _load_optional_json(path / "verification.json")
     shrink = _load_optional_json(path / "shrink-results.json")
@@ -283,6 +333,7 @@ def generate_report(
             bundle["findings"],
             candidates=candidates,
             include_candidates=include_candidates,
+            settled_obligations=settled,
         )
         sarif_results = len(sarif_doc["runs"][0]["results"])
         s_path = path / "results.sarif"

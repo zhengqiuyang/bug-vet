@@ -268,6 +268,79 @@ def _extract_patched_targets(node: ast.AST) -> set[str]:
     return targets
 
 
+def _records_into_var(body_node: ast.AST, var_names: set[str]) -> bool:
+    """Return True when AST records a failure into ``var_names`` or explicitly fails/exits 1."""
+    if not var_names:
+        return False
+    for sub in ast.walk(body_node):
+        if isinstance(sub, ast.Return) and isinstance(sub.value, ast.Constant) and sub.value.value == 1:
+            return True
+        if (
+            isinstance(sub, ast.Call)
+            and _call_name(sub) == "exit"
+            and sub.args
+            and isinstance(sub.args[0], ast.Constant)
+            and sub.args[0].value == 1
+        ):
+            return True
+        if (
+            isinstance(sub, ast.Raise)
+            and isinstance(sub.exc, ast.Call)
+            and _call_name(sub.exc) == "SystemExit"
+            and sub.exc.args
+            and isinstance(sub.exc.args[0], ast.Constant)
+            and sub.exc.args[0].value == 1
+        ):
+            return True
+        if (
+            isinstance(sub, ast.Call)
+            and isinstance(sub.func, ast.Attribute)
+            and sub.func.attr in {"append", "extend"}
+            and isinstance(sub.func.value, ast.Name)
+            and sub.func.value.id in var_names
+        ):
+            return True
+        if (
+            isinstance(sub, ast.AugAssign)
+            and isinstance(sub.op, ast.Add)
+            and isinstance(sub.target, ast.Name)
+            and sub.target.id in var_names
+        ):
+            return True
+    return False
+
+
+def _helper_call_records_failures(
+    fn_node: ast.AST,
+    module_funcs: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
+) -> bool:
+    """Detect 1-hop helper or ``asyncio.run(helper(failures))`` calls that record failures."""
+    candidate_calls: list[ast.Call] = []
+    for sub in ast.walk(fn_node):
+        if not isinstance(sub, ast.Call):
+            continue
+        candidate_calls.append(sub)
+        if _call_name(sub) == "run" and sub.args and isinstance(sub.args[0], ast.Call):
+            candidate_calls.append(sub.args[0])
+
+    for call in candidate_calls:
+        cname = _call_name(call)
+        if not cname or cname not in module_funcs:
+            continue
+        helper = module_funcs[cname]
+        pos_params = [a.arg for a in [*helper.args.posonlyargs, *helper.args.args]]
+        forwarded_params: set[str] = set()
+        for idx, arg in enumerate(call.args):
+            if isinstance(arg, ast.Name) and arg.id == "failures" and idx < len(pos_params):
+                forwarded_params.add(pos_params[idx])
+        for kw in call.keywords:
+            if kw.arg and isinstance(kw.value, ast.Name) and kw.value.id == "failures":
+                forwarded_params.add(kw.arg)
+        if forwarded_params and _records_into_var(helper, forwarded_params):
+            return True
+    return False
+
+
 def audit_test_vacuity(
     test_file: str | Path,
     *,
@@ -279,6 +352,11 @@ def audit_test_vacuity(
         raise FileNotFoundError(f"test/probe file does not exist: {path}")
     source = path.read_text(encoding="utf-8", errors="replace")
     tree = ast.parse(source)
+    module_funcs = {
+        stmt.name: stmt
+        for stmt in tree.body
+        if isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
 
     findings: list[dict[str, Any]] = []
     functions_checked = 0
@@ -307,35 +385,9 @@ def audit_test_vacuity(
 
         asserts = [sub for sub in ast.walk(node) if isinstance(sub, ast.Assert)]
         assert_calls = [sub for sub in ast.walk(node) if isinstance(sub, ast.Call) and _is_assertion_call(sub)]
-        failure_returns = [
-            sub
-            for sub in ast.walk(node)
-            if (
-                (isinstance(sub, ast.Return) and isinstance(sub.value, ast.Constant) and sub.value.value == 1)
-                or (
-                    isinstance(sub, ast.Call)
-                    and _call_name(sub) == "exit"
-                    and sub.args
-                    and isinstance(sub.args[0], ast.Constant)
-                    and sub.args[0].value == 1
-                )
-                or (
-                    isinstance(sub, ast.Raise)
-                    and isinstance(sub.exc, ast.Call)
-                    and _call_name(sub.exc) == "SystemExit"
-                    and sub.exc.args
-                    and isinstance(sub.exc.args[0], ast.Constant)
-                    and sub.exc.args[0].value == 1
-                )
-                or (
-                    isinstance(sub, ast.Call)
-                    and isinstance(sub.func, ast.Attribute)
-                    and sub.func.attr == "append"
-                    and isinstance(sub.func.value, ast.Name)
-                    and sub.func.value.id == "failures"
-                )
-            )
-        ]
+        records_failure = _records_into_var(node, {"failures"}) or _helper_call_records_failures(
+            node, module_funcs
+        )
 
         if is_test_fn and not asserts and not assert_calls:
             findings.append(
@@ -346,7 +398,7 @@ def audit_test_vacuity(
                     "detail": f"{node.name} executes without any assert or pytest.raises check",
                 }
             )
-        elif node.name in {"check", "main"} and not asserts and not assert_calls and not failure_returns:
+        elif node.name in {"check", "main"} and not asserts and not assert_calls and not records_failure:
             findings.append(
                 {
                     "kind": "no-assertions",

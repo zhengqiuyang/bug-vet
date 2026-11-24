@@ -140,11 +140,13 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {
             "type": "object",
             "properties": {
-                "action": {"type": "string", "enum": ["show", "add_obligation", "falsify"]},
+                "action": {"type": "string", "enum": ["show", "add_obligation", "falsify", "promote_candidate"]},
                 "run": {"type": "string"},
                 "runs_dir": {"type": "string"},
                 "all": {"type": "boolean"},
                 "claim": {"type": "object"},
+                "indices": {"type": "array", "items": {"type": "integer"}},
+                "structural_only": {"type": "boolean"},
                 "required": {
                     "type": "string",
                     "enum": ["doc", "probe", "test", "published", "runtime"],
@@ -439,6 +441,18 @@ def _handle_ledger(args: dict[str, Any]) -> dict[str, Any]:
         required = str(args.get("required", "probe"))
         ob = ledger_mod.add_obligation(path, claim, required=required)
         return {"run": run, "obligation": ob}
+
+    if action == "promote_candidate":
+        indices = args.get("indices")
+        structural_only = bool(args.get("structural_only", False))
+        required = str(args.get("required", "probe"))
+        promoted = ledger_mod.promote_candidates(
+            path,
+            indices=[int(i) for i in indices] if isinstance(indices, list) else None,
+            structural_only=structural_only,
+            required=required,
+        )
+        return {"run": run, "count": len(promoted), "promoted": promoted}
 
     if action == "falsify":
         ob_id = _require_str(args, "obligation_id")

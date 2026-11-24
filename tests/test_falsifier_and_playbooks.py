@@ -143,3 +143,39 @@ def test_playbooks_list_and_query() -> None:
 
     pb2 = playbooks.get_playbook("caplog")
     assert pb2["id"] == "fake-green-tests"
+
+
+def test_vacuity_audit_accepts_extend_augassign_and_async_helper_delegation(tmp_path: Path) -> None:
+    probe = tmp_path / "probe_async.py"
+    probe.write_text(
+        "import asyncio\n\n"
+        "def self_check():\n"
+        "    if 1 != 1:\n"
+        "        return ['bad']\n"
+        "    return []\n\n"
+        "async def _worker(out):\n"
+        "    out.append('failed')\n\n"
+        "def check(failures):\n"
+        "    failures.extend(['x'])\n"
+        "    failures += ['y']\n"
+        "    asyncio.run(_worker(failures))\n",
+        encoding="utf-8",
+    )
+    res = falsifier.audit_test_vacuity(probe)
+    assert res["vacuous"] is False
+
+    delegated = tmp_path / "probe_delegated.py"
+    delegated.write_text(
+        "import asyncio\n\n"
+        "def self_check():\n"
+        "    if 1 != 1:\n"
+        "        return ['bad']\n"
+        "    return []\n\n"
+        "async def _exercise(sink):\n"
+        "    sink.append('failed')\n\n"
+        "def check(failures):\n"
+        "    asyncio.run(_exercise(failures))\n",
+        encoding="utf-8",
+    )
+    res2 = falsifier.audit_test_vacuity(delegated)
+    assert res2["vacuous"] is False

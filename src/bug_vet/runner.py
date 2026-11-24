@@ -17,6 +17,17 @@ FAILING_VERDICTS = {"FAIL", "CHECKER_BUG", "ERROR"}
 
 _OBLIGATION_RE = re.compile(r'^OBLIGATION\s*=\s*["\']([A-Za-z0-9_.:-]+)["\']', re.MULTILINE)
 _CLAIM_RE = re.compile(r'^CLAIM\s*=\s*["\']([A-Za-z0-9_.:-]+)["\']', re.MULTILINE)
+_TRACEBACK_RE = re.compile(
+    r"Traceback \(most recent call last\):|(?:^|\n)(?:SyntaxError|IndentationError|TabError):",
+    re.MULTILINE,
+)
+
+
+def _classify_verdict(code: int, stderr: str) -> str:
+    """Downgrade uncaught Python crash tracebacks on exit code 1 to ERROR instead of FAIL."""
+    if code == 1 and _TRACEBACK_RE.search(stderr or ""):
+        return "ERROR"
+    return VERDICTS.get(code, f"ERROR({code})")
 
 
 def probe_binding(probe: Path) -> str | None:
@@ -81,12 +92,14 @@ def execute_probes(
                 timeout=timeout,
             )
             code = completed.returncode
-            output = (completed.stdout or "") + (completed.stderr or "")
+            stderr = completed.stderr or ""
+            output = (completed.stdout or "") + stderr
         except subprocess.TimeoutExpired:
             code = -1
+            stderr = ""
             output = f"timeout after {timeout}s"
 
-        verdict = VERDICTS.get(code, f"ERROR({code})")
+        verdict = _classify_verdict(code, stderr)
         claim_id, ob_id = ledger_mod.resolve_binding(binding)
         results.append(
             {

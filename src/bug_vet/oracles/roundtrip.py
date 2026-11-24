@@ -19,6 +19,7 @@ INVERSE_WORDS = (
     ("to_dict", "from_dict"),
     ("to_json", "from_json"),
 )
+STRING_COMPATIBLE_ANNOTATIONS = frozenset({"str", "Any", "object", "Text", "JsonValue"})
 
 AUTO_INPUTS_SOURCE = r'''import json
 
@@ -46,24 +47,55 @@ def _required_positional(node: ast.FunctionDef | ast.AsyncFunctionDef) -> int:
     return max(0, required)
 
 
+def _annotation_allows_string(expr: ast.AST | None) -> bool:
+    if expr is None:
+        return True
+    if isinstance(expr, ast.Constant) and isinstance(expr.value, str):
+        token = expr.value.strip().split("[", 1)[0].rsplit(".", 1)[-1]
+        return token in STRING_COMPATIBLE_ANNOTATIONS
+    if isinstance(expr, ast.Name):
+        return expr.id in STRING_COMPATIBLE_ANNOTATIONS
+    if isinstance(expr, ast.Attribute):
+        return expr.attr in STRING_COMPATIBLE_ANNOTATIONS
+    if isinstance(expr, ast.BinOp) and isinstance(expr.op, ast.BitOr):
+        return _annotation_allows_string(expr.left) or _annotation_allows_string(expr.right)
+    if isinstance(expr, ast.Subscript):
+        base = expr.value
+        base_name = base.id if isinstance(base, ast.Name) else (base.attr if isinstance(base, ast.Attribute) else None)
+        if base_name in {"Union", "Optional"}:
+            elems = list(expr.slice.elts) if isinstance(expr.slice, ast.Tuple) else [expr.slice]
+            return any(_annotation_allows_string(e) for e in elems)
+        if base_name == "Annotated":
+            first = expr.slice.elts[0] if isinstance(expr.slice, ast.Tuple) and expr.slice.elts else expr.slice
+            return _annotation_allows_string(first)
+    return False
+
+
+def _accepts_string_input(node: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+    positional = list(node.args.posonlyargs) + list(node.args.args)
+    if not positional:
+        return False
+    return _annotation_allows_string(positional[0].annotation)
+
+
 def find_inverse_pairs(source: str) -> list[tuple[str, str]]:
     """Return sorted ``(forward, backward)`` pairs whose names spell an inverse contract."""
     try:
         tree = ast.parse(source)
     except SyntaxError:
         return []
-    candidates: dict[str, int] = {}
+    candidates: dict[str, ast.FunctionDef | ast.AsyncFunctionDef] = {}
     for node in tree.body:
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and not node.name.startswith("_"):
             if _required_positional(node) == 1:
-                candidates[node.name] = node.lineno
+                candidates[node.name] = node
     pairs: list[tuple[str, str]] = []
     for first, second in INVERSE_WORDS:
         for name in list(candidates):
             if not name.startswith(first):
                 continue
             twin = second + name[len(first) :]
-            if twin in candidates:
+            if twin in candidates and _accepts_string_input(candidates[name]):
                 pairs.append((name, twin))
     return sorted(set(pairs))
 

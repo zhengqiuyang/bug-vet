@@ -180,3 +180,33 @@ def test_callsites_python_unwired_and_ts(tmp_path: Path) -> None:
     assert (runs_dir / "cs-ts" / "callsites-results.json").exists()
     data = json.loads((runs_dir / "cs-ts" / "callsites-results.json").read_text(encoding="utf-8"))
     assert data["language"] == "ts"
+
+
+def test_roundtrip_oracle_skips_non_string_typed_pairs(tmp_path: Path) -> None:
+    pkg = tmp_path / "typedpkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "ident.py").write_text(
+        "from dataclasses import dataclass\n\n"
+        "@dataclass\n"
+        "class Usage:\n"
+        "    tokens: int\n\n"
+        "def serialize_key(lookup: tuple[str, str]) -> dict:\n"
+        "    return {'k': lookup[0]}\n\n"
+        "def deserialize_key(raw: dict) -> tuple[str, str]:\n"
+        "    return ('a', raw['k'])\n\n"
+        "def serialize_usage(u: Usage) -> dict:\n"
+        "    return {'tokens': u.tokens}\n\n"
+        "def deserialize_usage(raw: dict) -> Usage:\n"
+        "    return Usage(tokens=raw['tokens'])\n\n"
+        "def encode_text(text: str) -> str:\n"
+        "    return text[::-1]\n\n"
+        "def decode_text(raw: str) -> str:\n"
+        "    return raw[::-1]\n",
+        encoding="utf-8",
+    )
+    gen = roundtrip_oracle.generate_roundtrip_probes(
+        "rt-typed", pkg, import_root=tmp_path, runs_dir=tmp_path / "runs"
+    )
+    assert gen["count"] == 1
+    assert gen["generated"][0]["pairs"] == [("encode_text", "decode_text")]

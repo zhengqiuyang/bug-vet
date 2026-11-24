@@ -27,7 +27,7 @@ Find and vet bugs where code **breaks its own contract**, and prove it with exec
 | `bv_falsify` | Run `compensation` trace, `vacuity` test/probe audit, or `record` falsification in ledger |
 | `bv_shrink` | Delta-debug a failing JSON input (`BUG_VET_INPUT`) to its minimal counterexample |
 | `bv_verify` | Take `baseline`, `verify` red-to-green delta, run repo `test_evidence`, or `diff` against `--pip-version` |
-| `bv_ledger` | `show` readiness report, `add_obligation`, or `falsify` |
+| `bv_ledger` | `show` readiness report, `add_obligation`, `promote_candidate`, or `falsify` |
 | `bv_gate` | Run fail-closed `gate` (`ready` / `partial` / `not-ready`), `collide`, or `issues` |
 | `bv_report` | Generate `REPORT.md`, `findings.json`, SARIF 2.1.0 `results.sarif`, and optional `PR.md` |
 
@@ -36,6 +36,7 @@ Find and vet bugs where code **breaks its own contract**, and prove it with exec
 ```bash
 bug-vet scan --mode all path/to/repo --name myrun
 bug-vet playbook sibling-asymmetry
+bug-vet ledger myrun --promote 1
 bug-vet falsify --check-vacuity .bug-vet/runs/myrun/probes/my_probe.py
 bug-vet probe myrun --cwd path/to/repo
 bug-vet baseline myrun --cwd path/to/repo

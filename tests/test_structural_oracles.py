@@ -261,3 +261,42 @@ def test_run_all_scans_ranks_structural_above_claims(tmp_path: Path) -> None:
     assert res["count"] >= 2
     assert res["candidates"][0]["oracle"] == "contracts"
     assert (tmp_path / "runs" / "all-run" / "candidates.json").exists()
+
+
+def test_v031_ignores_exception_kwargs_and_inplace_dict_redaction(tmp_path: Path) -> None:
+    (tmp_path / "base_err.py").write_text(
+        "class BaseSandbox:\n"
+        "    def read(self): raise NotImplementedError\n\n"
+        "class SandboxReadError(Exception):\n"
+        "    def __init__(self, *, path, cause=None, retryable=None):\n"
+        "        self.path, self.cause, self.retryable = path, cause, retryable\n\n"
+        "class DockerSandbox(BaseSandbox):\n"
+        "    def read(self): raise SandboxReadError(path='x', cause=OSError(), retryable=False)\n\n"
+        "class CloudSandbox(BaseSandbox):\n"
+        "    def read(self): raise SandboxReadError(path='y', cause=OSError(), retryable=False)\n\n"
+        "class LocalSandbox(BaseSandbox):\n"
+        "    def read(self): raise SandboxReadError(path='z')\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "client.py").write_text(
+        "from collections.abc import Mapping\n\n"
+        "def deserialize_state(payload: Mapping[str, object]) -> dict:\n"
+        "    sanitized = dict(payload)\n"
+        "    persisted = sanitized\n"
+        "    if isinstance(payload, dict):\n"
+        "        payload.clear()\n"
+        "        payload.update(sanitized)\n"
+        "        persisted = payload\n"
+        "    return persisted\n\n"
+        "def bad_narrowing(cfg: Mapping[str, object]) -> dict:\n"
+        "    if isinstance(cfg, dict):\n"
+        "        return dict(cfg)\n"
+        "    raise TypeError('must be dict')\n",
+        encoding="utf-8",
+    )
+
+    assert siblings.scan_siblings(tmp_path) == []
+    contract_cands = contracts.scan_contracts(tmp_path)
+    assert len(contract_cands) == 1
+    assert contract_cands[0].symbol == "bad_narrowing"
+    assert contract_cands[0].evidence["rule"] == "mapping-isinstance-dict"

@@ -2,7 +2,9 @@
 
 **Vet silent contract bugs with executable red/green proof.**
 
-Zero-dependency structural discovery oracles, adversarial falsification, fail-closed evidence ledger, SARIF 2.1.0 reporting, and a pure-stdlib MCP + CLI dual surface (`v0.3.0`).
+Zero-dependency structural discovery oracles, adversarial falsification, fail-closed evidence ledger, SARIF 2.1.0 reporting, and a pure-stdlib MCP + CLI dual surface (`v0.3.1`).
+
+> 📖 完整中文操作与接入指南见 [**docs/USER_GUIDE.md**](docs/USER_GUIDE.md)。
 
 ## Features
 
@@ -13,10 +15,10 @@ Zero-dependency structural discovery oracles, adversarial falsification, fail-cl
   - `roundtrip` & `claims`: self-checked inverse-pair round-trip probes, 12-family contract mining, fenced doc example runner, and Python/TS callsites.
 - **Adversarial Falsifier**:
   - Upstream call-graph compensation checker (`bug-vet falsify --check-compensation`).
-  - Python AST vacuous-test/probe auditor catching `no-assertions`, `tautology-assert`, `swallowed-assertion`, `loose-caplog-text`, `target-mocked`, and `empty-self-check`.
+  - Python AST vacuous-test/probe auditor catching `no-assertions`, `tautology-assert`, `swallowed-assertion`, `loose-caplog-text`, `target-mocked`, and `empty-self-check` (with support for `extend`/`+=`/helper delegation).
 - **Compiled Playbooks**: 5 structured bug-family playbooks (`bug-vet playbook --list` / `bv_playbook`).
-- **Evidence Ledger & Gate**: `doc < probe < test < published < runtime` authority ladder, mandatory `self_check()`, explicit `falsified` records, and fail-closed `ready / partial / not-ready` gating.
-- **Reporting & ContractBench**: `REPORT.md`, `findings.json`, SARIF 2.1.0 (`results.sarif`), `PR.md`, and the 12-case `ContractBench` suite (`bug-vet bench`).
+- **Evidence Ledger & Gate**: `doc < probe < test < published < runtime` authority ladder, mandatory `self_check()`, uncaught-traceback `ERROR` safeguard, CLI `ledger --promote` / `--add`, explicit `falsified` records, and fail-closed `ready / partial / not-ready` gating.
+- **Reporting & ContractBench**: `REPORT.md`, `findings.json`, SARIF 2.1.0 (`results.sarif`, suppressing settled ledger items), `PR.md`, and the 12-case `ContractBench` suite (`bug-vet bench`).
 
 ## ContractBench Snapshot (12 Real Merged OSS Bugs)
 
@@ -31,6 +33,7 @@ pytest -v
 
 bug-vet scan --mode all path/to/repo --name myrun
 bug-vet playbook --list
+bug-vet ledger myrun --promote 1
 bug-vet mcp
 bug-vet setup --client all
 ```

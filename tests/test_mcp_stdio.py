@@ -289,6 +289,14 @@ def test_mcp_stdio_end_to_end_workflow(tmp_path: Path) -> None:
         assert vac_resp["result"]["isError"] is False
         assert json.loads(vac_resp["result"]["content"][0]["text"])["vacuous"] is False
 
+        (pkg / "narrow.py").write_text(
+            "from collections.abc import Sequence\n"
+            "def take(items: Sequence[str]):\n"
+            "    if isinstance(items, list):\n"
+            "        return items\n"
+            "    return list(items)\n",
+            encoding="utf-8",
+        )
         _send(
             proc,
             {
@@ -308,6 +316,30 @@ def test_mcp_stdio_end_to_end_workflow(tmp_path: Path) -> None:
         )
         all_resp = _recv(proc)
         assert all_resp["result"]["isError"] is False
+        all_data = json.loads(all_resp["result"]["content"][0]["text"])
+        assert all_data["count"] >= 1
+
+        _send(
+            proc,
+            {
+                "jsonrpc": "2.0",
+                "id": 1035,
+                "method": "tools/call",
+                "params": {
+                    "name": "bv_ledger",
+                    "arguments": {
+                        "action": "promote_candidate",
+                        "run": "demo",
+                        "runs_dir": str(runs_dir),
+                        "indices": [1],
+                    },
+                },
+            },
+        )
+        prom_resp = _recv(proc)
+        assert prom_resp["result"]["isError"] is False
+        prom_data = json.loads(prom_resp["result"]["content"][0]["text"])
+        assert prom_data["count"] == 1
 
         _send(
             proc,

@@ -12,8 +12,72 @@ from bug_vet.paths import ensure_run
 
 SEQUENCE_TYPE_NAMES = frozenset({"Sequence", "MutableSequence", "Iterable", "Collection"})
 MAPPING_TYPE_NAMES = frozenset({"Mapping", "MutableMapping"})
+DICT_MUTATION_METHODS = frozenset({"clear", "update", "pop", "popitem", "setdefault"})
 REREGISTER_METHOD_PREFIXES = ("register", "attach", "bind", "upsert", "add_session")
 DESTRUCTIVE_CALLS = frozenset({"clear", "close", "cancel", "discard", "shutdown", "stop"})
+
+
+def _is_isinstance_dict_call(node: ast.AST, map_params: set[str]) -> str | None:
+    if not isinstance(node, ast.Call):
+        return None
+    if not isinstance(node.func, ast.Name) or node.func.id != "isinstance" or len(node.args) != 2:
+        return None
+    target_arg, classinfo = node.args
+    if isinstance(target_arg, ast.Name) and target_arg.id in map_params:
+        if isinstance(classinfo, ast.Name) and classinfo.id == "dict":
+            return target_arg.id
+    return None
+
+
+def _mutates_dict_in_place(body: list[ast.stmt], pname: str) -> bool:
+    mod = ast.Module(body=body, type_ignores=[])
+    for sub in ast.walk(mod):
+        if isinstance(sub, (ast.Return, ast.Raise)):
+            return False
+    for sub in ast.walk(mod):
+        if (
+            isinstance(sub, ast.Call)
+            and isinstance(sub.func, ast.Attribute)
+            and isinstance(sub.func.value, ast.Name)
+            and sub.func.value.id == pname
+            and sub.func.attr in DICT_MUTATION_METHODS
+        ):
+            return True
+        targets: list[ast.expr] = []
+        if isinstance(sub, ast.Assign):
+            targets = list(sub.targets)
+        elif isinstance(sub, ast.AugAssign):
+            targets = [sub.target]
+        elif isinstance(sub, ast.Delete):
+            targets = list(sub.targets)
+        for tgt in targets:
+            if (
+                isinstance(tgt, ast.Subscript)
+                and isinstance(tgt.value, ast.Name)
+                and tgt.value.id == pname
+            ):
+                return True
+    return False
+
+
+def _collect_inplace_dict_guard_calls(fn: ast.AST, map_params: set[str]) -> set[int]:
+    """Identify intentional ``if isinstance(m, dict): <mutate in place>`` guards with no else/return/raise."""
+    if not map_params:
+        return set()
+    ignored: set[int] = set()
+    for node in ast.walk(fn):
+        if not isinstance(node, ast.If) or node.orelse:
+            continue
+        test_terms = (
+            list(node.test.values)
+            if isinstance(node.test, ast.BoolOp) and isinstance(node.test.op, ast.And)
+            else [node.test]
+        )
+        for term in test_terms:
+            pname = _is_isinstance_dict_call(term, map_params)
+            if pname and _mutates_dict_in_place(node.body, pname):
+                ignored.add(id(term))
+    return ignored
 
 
 def _annotation_names(ann: ast.AST | None) -> set[str]:
@@ -46,6 +110,7 @@ def _scan_type_narrowing(rel: str, tree: ast.Module) -> list[Candidate]:
         if not seq_params and not map_params:
             continue
 
+        ignored_dict_guards = _collect_inplace_dict_guard_calls(node, map_params)
         for sub in ast.walk(node):
             if not isinstance(sub, ast.Call):
                 continue
@@ -76,6 +141,8 @@ def _scan_type_narrowing(rel: str, tree: ast.Module) -> list[Candidate]:
                     )
                 )
             elif pname in map_params and checked_type == "dict":
+                if id(sub) in ignored_dict_guards:
+                    continue
                 candidates.append(
                     Candidate(
                         oracle="contracts",

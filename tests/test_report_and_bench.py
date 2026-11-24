@@ -148,3 +148,66 @@ def test_contractbench_materialize_and_eval_on_synthetic_git_repo(tmp_path: Path
     assert res["summary"]["post_fix_cleared_count"] == 1
     assert out_json.exists()
     assert "HIT" in out_md.read_text(encoding="utf-8")
+
+
+def test_report_sarif_suppresses_settled_candidates(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    run = runs_dir / "sarif-sup"
+    (run / "probes").mkdir(parents=True)
+
+    (run / "candidates.json").write_text(
+        json.dumps(
+            {
+                "run": "sarif-sup",
+                "target": str(tmp_path / "repo"),
+                "candidates": [
+                    {
+                        "oracle": "siblings",
+                        "family": "sibling-asymmetry",
+                        "file": "pkg/a.py",
+                        "line": 10,
+                        "symbol": "foo",
+                        "detail": "settled as falsified",
+                        "confidence": "high",
+                    },
+                    {
+                        "oracle": "contracts",
+                        "family": "type-contract",
+                        "file": "pkg/b.py",
+                        "line": 20,
+                        "symbol": "bar",
+                        "detail": "unsettled candidate",
+                        "confidence": "high",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    ledger_mod.sync_obligations(
+        run,
+        [
+            {
+                "id": "c-settled",
+                "text": "settled as falsified",
+                "source": str(tmp_path / "repo" / "pkg" / "a.py"),
+                "line": 10,
+                "symbol": "foo",
+                "kind": "sibling-asymmetry",
+                "visibility": "public",
+            }
+        ],
+    )
+    ledger_mod.record_falsification(
+        run,
+        "ob-c-settled",
+        reason="false positive",
+        category="false-positive",
+        source_location="pkg/a.py:10",
+    )
+
+    rep = report.generate_report("sarif-sup", runs_dir=runs_dir, include_candidates=True)
+    assert rep["sarif_results"] == 1
+    sarif = json.loads(Path(rep["artifacts"]["sarif"]).read_text(encoding="utf-8"))
+    uris = [r["locations"][0]["physicalLocation"]["artifactLocation"]["uri"] for r in sarif["runs"][0]["results"]]
+    assert uris == ["pkg/b.py"]

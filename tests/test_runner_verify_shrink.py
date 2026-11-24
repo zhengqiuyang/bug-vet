@@ -210,3 +210,44 @@ def test_diff_between_two_local_interpreters(tmp_path: Path) -> None:
     )
     assert res["different"] == 2
     assert Path(res["artifact"]).exists()
+
+
+def test_uncaught_python_traceback_downgrades_to_error_not_fail(tmp_path: Path) -> None:
+    runs_dir = tmp_path / "runs"
+    run_path = runs_dir / "tb-run"
+    (run_path / "probes").mkdir(parents=True)
+
+    ledger_mod.sync_obligations(
+        run_path,
+        [
+            {
+                "id": "c-crash",
+                "text": "contract check crashes before asserting",
+                "source": "mod.py",
+                "line": 1,
+                "symbol": "fn",
+                "kind": "contract",
+                "visibility": "public",
+            }
+        ],
+    )
+    crash_probe = run_path / "probes" / "probe_crash.py"
+    crash_probe.write_text(
+        'CLAIM = "c-crash"\n'
+        "def self_check():\n"
+        "    raise TypeError('broken setup before check ran')\n"
+        "if __name__ == '__main__':\n"
+        "    self_check()\n",
+        encoding="utf-8",
+    )
+
+    res = runner.run_probes("tb-run", runs_dir=runs_dir, python=sys.executable, cwd=tmp_path)
+    assert res["results"][0]["exit_code"] == 1
+    assert res["results"][0]["verdict"] == "ERROR"
+
+    state = ledger_mod.load(run_path)
+    assert state["obligations"][0]["disposition"] == "unknown"
+    rep = ledger_mod.evaluate(state, probe_dir=run_path / "probes")
+    assert rep["findings"] == []
+    assert rep["state"] == "partial"
+    assert any(b["kind"] == "inconclusive" for b in rep["blockers"])

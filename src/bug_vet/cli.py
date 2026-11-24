@@ -328,7 +328,44 @@ def cmd_diff(args: argparse.Namespace) -> int:
 
 
 def cmd_ledger(args: argparse.Namespace) -> int:
-    path = run_dir(args.name, runs_dir=_runs_dir_of(args))
+    runs_dir = _runs_dir_of(args)
+    if args.promote or args.promote_structural:
+        path = run_dir(args.name, runs_dir=runs_dir)
+        promoted = ledger_mod.promote_candidates(
+            path,
+            indices=args.promote,
+            structural_only=args.promote_structural,
+            required=args.required,
+        )
+        for ob in promoted:
+            loc = f"{ob['source']}:{ob['line']}" if ob.get("line") else ob.get("source", "")
+            print(f"promoted {ob['id']} [{ob['family']}] -> {loc}")
+        state = ledger_mod.load(path)
+        print(ledger_mod.summary(state, probe_dir=path / "probes"))
+        return 0
+
+    if args.add:
+        path = ensure_run(args.name, runs_dir=runs_dir)
+        ob = ledger_mod.add_obligation(
+            path,
+            {
+                "id": args.ob_id,
+                "text": args.add,
+                "source": args.source or "",
+                "line": args.line,
+                "symbol": args.symbol,
+                "kind": args.family,
+                "origin": "manual",
+                "visibility": "public",
+            },
+            required=args.required,
+        )
+        print(f"added {ob['id']} [{ob['family']}] ({ob['required_observation']})")
+        state = ledger_mod.load(path)
+        print(ledger_mod.summary(state, probe_dir=path / "probes"))
+        return 0
+
+    path = run_dir(args.name, runs_dir=runs_dir)
     if not path.exists():
         print(f"error: no run at {path}", file=sys.stderr)
         return 2
@@ -689,11 +726,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_diff.add_argument("--obligation")
     p_diff.set_defaults(func=cmd_diff)
 
-    p_ledger = sub.add_parser("ledger", parents=[runs_parent], help="inspect obligation ledger and readiness")
+    p_ledger = sub.add_parser("ledger", parents=[runs_parent], help="inspect or register obligations in ledger")
     p_ledger.add_argument("name")
     p_ledger.add_argument("--json", action="store_true")
     p_ledger.add_argument("--all", action="store_true")
     p_ledger.add_argument("--limit", type=int, default=25)
+    p_ledger.add_argument("--promote", action="append", type=int, metavar="N", help="1-based candidate index from candidates.json")
+    p_ledger.add_argument("--promote-structural", action="store_true", help="promote all non-claims candidates")
+    p_ledger.add_argument("--add", metavar="CLAIM_TEXT", help="register a manual obligation in ledger.json")
+    p_ledger.add_argument("--id", dest="ob_id", help="optional obligation/claim id for --add")
+    p_ledger.add_argument("--source", help="source file path for --add")
+    p_ledger.add_argument("--line", type=int, help="line number for --add")
+    p_ledger.add_argument("--symbol", help="symbol name for --add")
+    p_ledger.add_argument("--family", default="contract", help="bug family for --add")
+    p_ledger.add_argument("--required", choices=ledger_mod.AUTHORITIES, default="probe", help="required authority for --add/--promote")
     p_ledger.set_defaults(func=cmd_ledger)
 
     p_falsify = sub.add_parser(

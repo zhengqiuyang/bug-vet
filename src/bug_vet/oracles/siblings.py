@@ -120,7 +120,7 @@ def _scan_abc_constructor_asymmetry(
                     if not isinstance(node, ast.Call):
                         continue
                     cname = _camel_callee(node)
-                    if not cname:
+                    if not cname or cname.endswith(("Error", "Exception", "Warning")):
                         continue
                     if _is_fallback_constructor_call(node):
                         continue

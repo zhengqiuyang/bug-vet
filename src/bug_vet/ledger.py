@@ -201,6 +201,56 @@ def sync_obligations(run_path: Path, claims: list[dict], *, required: str = "pro
     return ledger
 
 
+def promote_candidates(
+    run_path: Path,
+    *,
+    indices: list[int] | None = None,
+    structural_only: bool = False,
+    required: str = "probe",
+) -> list[dict]:
+    """Promote selected entries from ``candidates.json`` into ledger obligations."""
+    cand_file = run_path / "candidates.json"
+    if not cand_file.exists():
+        raise FileNotFoundError(f"candidates.json not found under {run_path}")
+    doc = json.loads(cand_file.read_text(encoding="utf-8", errors="replace"))
+    cands: list[dict] = list(doc.get("candidates", []))
+    target_root = doc.get("target")
+
+    selected: list[tuple[int, dict]] = []
+    if indices:
+        seen_idx: set[int] = set()
+        for idx in indices:
+            if idx < 1 or idx > len(cands):
+                raise ValueError(f"candidate index {idx} out of range 1..{len(cands)}")
+            if idx not in seen_idx:
+                seen_idx.add(idx)
+                selected.append((idx, cands[idx - 1]))
+    elif structural_only:
+        for idx, cand in enumerate(cands, 1):
+            if cand.get("oracle") != "claims":
+                selected.append((idx, cand))
+    else:
+        raise ValueError("specify candidate indices or structural_only=True")
+
+    promoted: list[dict] = []
+    for idx, cand in selected:
+        src_rel = str(cand.get("file") or "")
+        src_path = str(Path(target_root) / src_rel) if target_root and src_rel else src_rel
+        cid = f"cand-{idx}-{digest(src_rel, cand.get('line'), cand.get('symbol') or '', cand.get('family') or '')[:6]}"
+        claim = {
+            "id": cid,
+            "text": str(cand.get("detail") or ""),
+            "source": src_path,
+            "line": cand.get("line"),
+            "symbol": cand.get("symbol"),
+            "kind": str(cand.get("family") or "contract"),
+            "origin": f"oracle:{cand.get('oracle', 'scan')}",
+            "visibility": "public",
+        }
+        promoted.append(add_obligation(run_path, claim, required=required))
+    return promoted
+
+
 def add_obligation(run_path: Path, claim: dict, *, required: str = "probe") -> dict:
     """Register or update a single obligation in ``ledger.json`` and return the obligation."""
     ledger = load(run_path)
