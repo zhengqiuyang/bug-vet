@@ -75,7 +75,7 @@ bug-vet setup --client all --apply --project-dir path\to\project --command-bin "
 
 ### 一键安装原生 Antigravity Plugin（v0.4.0 新增，v0.4.1 随包分发）
 
-除了单独挂载 MCP，`bug-vet` 还内置了一整套原生 Antigravity Plugin（源码位于 [src/bug_vet/plugin/](file:///D:/projects/bug-vet/src/bug_vet/plugin)，已随 wheel/sdist 一起打包），一键安装即同时启用：
+除了单独挂载 MCP，`bug-vet` 还内置了一整套原生 Antigravity Plugin（源码位于 [src/bug_vet/plugin/](../src/bug_vet/plugin/)，已随 wheel/sdist 一起打包），一键安装即同时启用：
 
 - **MCP 托管（`mcp_config.json`）**：自动注册 `bug-vet-mcp`（9 个 `bv_*` 工具）；
 - **3 个渐进加载 Skills（`skills/`）**：`bug-vet-hunt`、`bug-vet-verify`、`bug-vet-bench`；
@@ -346,7 +346,7 @@ bug-vet falsify --check-vacuity path\to\probe_or_test.py --target-symbol target_
 
 ## 8. ContractBench 基准回测
 
-内置 12 个真实开源仓库历史 Bug 的前后对比评测集（[bench/cases.json](file:///D:/projects/bug-vet/bench/cases.json)），全程通过 `git archive` 提取只读树到临时缓存目录，不改动源仓库：
+内置 12 个真实开源仓库历史 Bug 的前后对比评测集（[bench/cases.json](../bench/cases.json)），全程通过 `git archive` 提取只读树到临时缓存目录，不改动源仓库：
 
 ```powershell
 # 全量跑 12 个基准 case

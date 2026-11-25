@@ -1,0 +1,31 @@
+name: New Oracle Proposal
+description: Propose a structural contract-bug oracle rule backed by real merged OSS fixes
+title: "[Oracle]: "
+labels: ["enhancement"]
+body:
+  - type: input
+    id: family
+    attributes:
+      label: Bug family
+      placeholder: "sibling-asymmetry / parser-metadata / type-contract / ..."
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Real merged OSS fix example(s)
+      description: Link at least one real merged PR/commit showing the silent contract failure and its fix.
+    validations:
+      required: true
+  - type: textarea
+    id: heuristic
+    attributes:
+      label: Structural signal & post-fix negative control
+      description: What AST/structural invariant triggers pre-fix, and why does it clear post-fix?
+    validations:
+      required: true
+  - type: textarea
+    id: traps
+    attributes:
+      label: Known false-positive traps & falsification strategy
+      description: What valid idioms could resemble this pattern, and how should falsifier/filters reject them?

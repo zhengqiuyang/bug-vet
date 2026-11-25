@@ -122,6 +122,7 @@ The optional Antigravity bundle packages the same workflow as three on-demand sk
 
 - [User guide (中文)](docs/USER_GUIDE.md): full CLI/MCP walkthrough and plugin setup.
 - [Benchmark](bench/reports/BENCHMARK.md): per-case recall and post-fix control.
+- [Contributing](CONTRIBUTING.md): dev setup, adding oracles, and ContractBench guidelines.
 - [Changelog](CHANGELOG.md): what changed in each release.
 - [License](LICENSE): MIT.
 
