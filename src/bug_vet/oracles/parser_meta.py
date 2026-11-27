@@ -77,7 +77,11 @@ def _scan_naive_fence_stripping(
             and isinstance(node.args[0].value, str)
         ):
             arg_val = node.args[0].value
-            if arg_val and set(arg_val) <= {"`", "~"}:
+            receiver = ast.unparse(node.func.value).lower()
+            # .strip("`") on a filename is normalizing a path, not removing a fence.
+            if arg_val and set(arg_val) <= {"`", "~"} and not any(
+                token in receiver for token in ("file", "path", "filename", "repo", "branch")
+            ) and receiver.strip() not in {"fence", "line", "stripped"}:
                 candidates.append(
                     Candidate(
                         oracle="parser_meta",
@@ -103,10 +107,11 @@ def _scan_naive_fence_stripping(
         if not node.args or not isinstance(node.args[0], ast.Constant) or not isinstance(node.args[0].value, str):
             continue
         pat = node.args[0].value
-        if "```" not in pat:
+        fence_literal = "```" if "```" in pat else "~~~" if "~~~" in pat else None
+        if fence_literal is None:
             continue
         # Ignore language-specific info-string opening matchers like ```mermaid without a closing fence
-        if re.search(r"```[A-Za-z]+", pat) and r"\Z" not in pat and pat.count("```") == 1:
+        if re.search(rf"{re.escape(fence_literal)}[A-Za-z]+", pat) and r"\Z" not in pat and pat.count(fence_literal) == 1:
             continue
         # Look for wrapping-fence or line-fence patterns that hardcode ``` without backreferences
         has_anchor_or_fence = any(tok in pat for tok in (r"\A", r"\Z", "^", "$"))
@@ -120,11 +125,95 @@ def _scan_naive_fence_stripping(
                     line=node.lineno,
                     symbol=owners.get(node.lineno),
                     detail=(
-                        "regex matches literal ``` code fence without length/character backreference; "
-                        "breaks on nested 4-backtick (````) or tilde (~~~) CommonMark fences"
+                        f"regex matches literal {fence_literal} code fence without length/character backreference; "
+                        "breaks on nested/longer or mixed-character CommonMark fences"
                     ),
                     confidence="high",
-                    evidence={"rule": "hardcoded-triple-fence-regex", "pattern": pat[:120]},
+                    evidence={
+                        "rule": "hardcoded-triple-fence-regex",
+                        "pattern": pat[:120],
+                        "fence": "tilde" if fence_literal == "~~~" else "backtick",
+                    },
+                    playbook_id="parser-metadata",
+                )
+            )
+    return candidates
+
+
+def _literal_fence_run(value: str) -> str | None:
+    """Return the fence character if *value* starts with a run of 3+ backticks/tildes."""
+    if not value:
+        return None
+    char = value[0]
+    if char not in {"`", "~"}:
+        return None
+    run = len(value) - len(value.lstrip(char))
+    return char if run >= 3 else None
+
+
+def _yaml_fence_context(symbol: str | None) -> bool:
+    low = (symbol or "").lower()
+    return any(token in low for token in ("yaml", "yml", "fence"))
+
+
+def _scan_literal_fence_checks(
+    rel: str,
+    source: str,
+    tree: ast.Module,
+    owners: dict[int, str],
+) -> list[Candidate]:
+    """Flag literal `.startswith('```yaml')` / `== '```'` fence checks in YAML/fence helpers."""
+    candidates: list[Candidate] = []
+    segments = {
+        node.name: ast.get_source_segment(source, node) or ""
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef)
+    }
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call | ast.Compare):
+            continue
+        symbol = owners.get(getattr(node, "lineno", 0))
+        if not _yaml_fence_context(symbol):
+            continue
+        literals: list[str] = []
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr in {"startswith", "endswith"}
+            and len(node.args) == 1
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+        ):
+            literals.append(node.args[0].value)
+        elif isinstance(node, ast.Compare):
+            literals.extend(
+                value.value
+                for value in [node.left, *node.comparators]
+                if isinstance(value, ast.Constant) and isinstance(value.value, str)
+            )
+        if "`" in segments.get(symbol or "", "") and "~" in segments.get(symbol or "", ""):
+            continue
+        for literal in literals:
+            char = _literal_fence_run(literal)
+            if char is None:
+                continue
+            candidates.append(
+                Candidate(
+                    oracle="parser_meta",
+                    family="parser-metadata",
+                    file=rel,
+                    line=node.lineno,
+                    symbol=symbol,
+                    detail=(
+                        f"checks a literal {literal!r} fence without accepting the other fence character "
+                        "or a longer run; a CommonMark fence of a different character/length is missed"
+                    ),
+                    confidence="high",
+                    evidence={
+                        "rule": "literal-fence-check",
+                        "literal": literal[:40],
+                        "fence": "tilde" if char == "~" else "backtick",
+                    },
                     playbook_id="parser-metadata",
                 )
             )
@@ -327,6 +416,7 @@ def scan_parser_meta(root: str | Path) -> list[Candidate]:
         rel = rel_posix(file, target)
         owners = _enclosing_symbols(tree)
         candidates.extend(_scan_naive_fence_stripping(rel, tree, owners))
+        candidates.extend(_scan_literal_fence_checks(rel, source, tree, owners))
         candidates.extend(_scan_incomplete_event_terminators(rel, tree, owners))
         candidates.extend(_scan_unescaped_marker_roundtrip(rel, source, tree, owners))
         candidates.extend(_scan_unsafe_dict_get_items(rel, tree))

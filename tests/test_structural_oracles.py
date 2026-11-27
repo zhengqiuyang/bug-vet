@@ -300,3 +300,40 @@ def test_v031_ignores_exception_kwargs_and_inplace_dict_redaction(tmp_path: Path
     assert len(contract_cands) == 1
     assert contract_cands[0].symbol == "bad_narrowing"
     assert contract_cands[0].evidence["rule"] == "mapping-isinstance-dict"
+
+
+def test_parser_meta_flags_literal_fence_checks_and_skips_filename_stripping(tmp_path: Path) -> None:
+    f = tmp_path / "yaml_extract.py"
+    f.write_text(
+        "def _extract_labelled_yaml_block(text):\n"
+        "    for line in text.splitlines():\n"
+        "        stripped = line.strip()\n"
+        "        if not (stripped.startswith('```yaml') or stripped.startswith('```yml')):\n"
+        "            continue\n"
+        "        if stripped == '```':\n"
+        "            return 'ok'\n"
+        "    return None\n"
+        "def _resolve_diff_file_path(relevant_file):\n"
+        "    return relevant_file.strip().strip('`')\n",
+        encoding="utf-8",
+    )
+    cands = parser_meta.scan_parser_meta(tmp_path)
+    fence_checks = [c for c in cands if c.evidence["rule"] == "literal-fence-check"]
+    assert len(fence_checks) >= 3
+    assert {c.evidence["fence"] for c in fence_checks} == {"backtick"}
+    assert not any(c.evidence["rule"] == "naive-fence-strip" for c in cands)
+
+    f.write_text(
+        "def _extract_labelled_yaml_block(text):\n"
+        "    for line in text.splitlines():\n"
+        "        stripped = line.strip()\n"
+        "        if not (stripped.startswith('```yaml') or stripped.startswith('~~~yaml')):\n"
+        "            continue\n"
+        "        if stripped == '```' or stripped == '~~~':\n"
+        "            return 'ok'\n"
+        "    return None\n",
+        encoding="utf-8",
+    )
+    assert not [
+        c for c in parser_meta.scan_parser_meta(tmp_path) if c.evidence["rule"] == "literal-fence-check"
+    ]
